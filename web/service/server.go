@@ -1091,6 +1091,14 @@ func (s *ServerService) SaveLinkHistory(historyType, link string) error {
 		CreatedAt: time.Now(),
 	}
 
+	if config.GetDBType() == "mongodb" {
+		err := database.GetProvider().AddLinkHistory(record)
+		if err != nil {
+			return err
+		}
+		return database.GetProvider().Checkpoint()
+	}
+
 	// 【核心修正】: 第一步，调用重构后的 AddLinkHistory 函数。
 	// 这个函数现在是一个原子事务。如果它没有返回错误，就意味着数据已经成功提交到了 .wal 日志文件。
 	err := database.AddLinkHistory(record)
@@ -1105,6 +1113,9 @@ func (s *ServerService) SaveLinkHistory(historyType, link string) error {
 
 // LoadLinkHistory loads the latest 10 links from the database
 func (s *ServerService) LoadLinkHistory() ([]*database.LinkHistory, error) {
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().GetLinkHistory()
+	}
 	return database.GetLinkHistory()
 }
 

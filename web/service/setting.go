@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"x-ui/config"
 	"x-ui/database"
 	"x-ui/database/model"
 	"x-ui/logger"
@@ -86,12 +87,28 @@ func (s *SettingService) GetDefaultJsonConfig() (any, error) {
 }
 
 func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
-	db := database.GetDB()
-	settings := make([]*model.Setting, 0)
-	err := db.Model(model.Setting{}).Not("key = ?", "xrayTemplateConfig").Find(&settings).Error
-	if err != nil {
-		return nil, err
+	var settings []*model.Setting
+
+	if config.GetDBType() == "mongodb" {
+		allSettings, err := database.GetProvider().GetAllSettings()
+		if err != nil {
+			return nil, err
+		}
+		settings = make([]*model.Setting, 0)
+		for _, s := range allSettings {
+			if s.Key != "xrayTemplateConfig" {
+				settings = append(settings, s)
+			}
+		}
+	} else {
+		db := database.GetDB()
+		settings = make([]*model.Setting, 0)
+		err := db.Model(model.Setting{}).Not("key = ?", "xrayTemplateConfig").Find(&settings).Error
+		if err != nil {
+			return nil, err
+		}
 	}
+
 	allSetting := &entity.AllSetting{}
 	t := reflect.TypeOf(allSetting).Elem()
 	v := reflect.ValueOf(allSetting).Elem()
@@ -161,6 +178,9 @@ func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 }
 
 func (s *SettingService) ResetSettings() error {
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().DeleteAllSettings()
+	}
 	db := database.GetDB()
 	err := db.Where("1 = 1").Delete(model.Setting{}).Error
 	if err != nil {
@@ -171,6 +191,9 @@ func (s *SettingService) ResetSettings() error {
 }
 
 func (s *SettingService) getSetting(key string) (*model.Setting, error) {
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().GetSettingByKey(key)
+	}
 	db := database.GetDB()
 	setting := &model.Setting{}
 	err := db.Model(model.Setting{}).Where("key = ?", key).First(setting).Error
@@ -182,6 +205,20 @@ func (s *SettingService) getSetting(key string) (*model.Setting, error) {
 
 func (s *SettingService) saveSetting(key string, value string) error {
 	setting, err := s.getSetting(key)
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		if provider.IsNotFound(err) {
+			return provider.CreateSetting(&model.Setting{
+				Key:   key,
+				Value: value,
+			})
+		} else if err != nil {
+			return err
+		}
+		setting.Key = key
+		setting.Value = value
+		return provider.SaveSetting(setting)
+	}
 	db := database.GetDB()
 	if database.IsNotFound(err) {
 		return db.Create(&model.Setting{

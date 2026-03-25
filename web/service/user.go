@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 
+	"x-ui/config"
 	"x-ui/database"
 	"x-ui/database/model"
 	"x-ui/logger"
@@ -17,6 +18,9 @@ type UserService struct {
 }
 
 func (s *UserService) GetFirstUser() (*model.User, error) {
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().GetFirstUser()
+	}
 	db := database.GetDB()
 
 	user := &model.User{}
@@ -30,17 +34,26 @@ func (s *UserService) GetFirstUser() (*model.User, error) {
 }
 
 func (s *UserService) CheckUser(username string, password string, twoFactorCode string) *model.User {
-	db := database.GetDB()
+	var user *model.User
+	var err error
 
-	user := &model.User{}
-
-	err := db.Model(model.User{}).
-		Where("username = ?", username).
-		First(user).
-		Error
-	if err == gorm.ErrRecordNotFound {
-		return nil
-	} else if err != nil {
+	if config.GetDBType() == "mongodb" {
+		user, err = database.GetProvider().GetUserByUsername(username)
+		if database.GetProvider().IsNotFound(err) {
+			return nil
+		}
+	} else {
+		db := database.GetDB()
+		user = &model.User{}
+		err = db.Model(model.User{}).
+			Where("username = ?", username).
+			First(user).
+			Error
+		if err == gorm.ErrRecordNotFound {
+			return nil
+		}
+	}
+	if err != nil {
 		logger.Warning("check user err:", err)
 		return nil
 	}
@@ -72,9 +85,7 @@ func (s *UserService) CheckUser(username string, password string, twoFactorCode 
 }
 
 func (s *UserService) UpdateUser(id int, username string, password string) error {
-	db := database.GetDB()
 	hashedPassword, err := crypto.HashPasswordAsBcrypt(password)
-
 	if err != nil {
 		return err
 	}
@@ -89,6 +100,11 @@ func (s *UserService) UpdateUser(id int, username string, password string) error
 		s.settingService.SetTwoFactorToken("")
 	}
 
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().UpdateUserByID(id, map[string]any{"username": username, "password": hashedPassword})
+	}
+
+	db := database.GetDB()
 	return db.Model(model.User{}).
 		Where("id = ?", id).
 		Updates(map[string]any{"username": username, "password": hashedPassword}).
@@ -105,6 +121,22 @@ func (s *UserService) UpdateFirstUser(username string, password string) error {
 
 	if er != nil {
 		return er
+	}
+
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		user, err := provider.GetFirstUser()
+		if provider.IsNotFound(err) {
+			user = &model.User{}
+			user.Username = username
+			user.Password = hashedPassword
+			return provider.CreateUser(user)
+		} else if err != nil {
+			return err
+		}
+		user.Username = username
+		user.Password = hashedPassword
+		return provider.SaveUser(user)
 	}
 
 	db := database.GetDB()
