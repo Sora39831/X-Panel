@@ -49,7 +49,7 @@ func runWebServer() {
 
 	godotenv.Load()
 
-	err := database.InitDB(config.GetDBPath())
+	err := database.InitProvider(config.GetDBType(), config.GetDBPath())
 	if err != nil {
 		log.Fatalf("Error initializing database: %v", err)
 	}
@@ -209,7 +209,7 @@ func runWebServer() {
 }
 
 func resetSetting() {
-	err := database.InitDB(config.GetDBPath())
+	err := database.InitProvider(config.GetDBType(), config.GetDBPath())
 	if err != nil {
 		fmt.Println("Failed to initialize database:", err)
 		return
@@ -367,7 +367,7 @@ func updateTgbotEnableSts(status bool) {
 }
 
 func updateTgbotSetting(tgBotToken string, tgBotChatid string, tgBotRuntime string) {
-	err := database.InitDB(config.GetDBPath())
+	err := database.InitProvider(config.GetDBType(), config.GetDBPath())
 	if err != nil {
 		fmt.Println("Error initializing database（初始化数据库出错）:", err)
 		return
@@ -404,7 +404,7 @@ func updateTgbotSetting(tgBotToken string, tgBotChatid string, tgBotRuntime stri
 }
 
 func updateSetting(port int, username string, password string, webBasePath string, listenIP string, resetTwoFactor bool) {
-	err := database.InitDB(config.GetDBPath())
+	err := database.InitProvider(config.GetDBType(), config.GetDBPath())
 	if err != nil {
 		fmt.Println("Database initialization failed（初始化数据库失败）:", err)
 		return
@@ -462,7 +462,7 @@ func updateSetting(port int, username string, password string, webBasePath strin
 }
 
 func updateCert(publicKey string, privateKey string) {
-	err := database.InitDB(config.GetDBPath())
+	err := database.InitProvider(config.GetDBType(), config.GetDBPath())
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -522,7 +522,7 @@ func GetListenIP(getListen bool) {
 func migrateDb() {
 	inboundService := service.InboundService{}
 
-	err := database.InitDB(config.GetDBPath())
+	err := database.InitProvider(config.GetDBType(), config.GetDBPath())
 	if err != nil {
 		log.Fatal(err)
 	}

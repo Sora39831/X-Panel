@@ -178,6 +178,9 @@ func InitDB(dbPath string) error {
 }
 
 func CloseDB() error {
+	if provider != nil {
+		provider.Close()
+	}
 	if db != nil {
 		sqlDB, err := db.DB()
 		if err != nil {
