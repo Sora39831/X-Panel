@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"x-ui/config"
 	"x-ui/database"
 	"x-ui/database/model"
 	"x-ui/logger"
@@ -105,12 +106,32 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, string, error
 }
 
 func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) {
+	if config.GetDBType() == "mongodb" {
+		allInbounds, err := database.GetProvider().GetAllInboundsWithClientStats()
+		if err != nil {
+			return nil, err
+		}
+		var result []*model.Inbound
+		for _, inbound := range allInbounds {
+			if !inbound.Enable {
+				continue
+			}
+			protocol := string(inbound.Protocol)
+			if protocol != "vmess" && protocol != "vless" && protocol != "trojan" && protocol != "shadowsocks" {
+				continue
+			}
+			if strings.Contains(inbound.Settings, subId) {
+				result = append(result, inbound)
+			}
+		}
+		return result, nil
+	}
 	db := database.GetDB()
 	var inbounds []*model.Inbound
 	err := db.Model(model.Inbound{}).Preload("ClientStats").Where(`id in (
 		SELECT DISTINCT inbounds.id
 		FROM inbounds,
-			JSON_EACH(JSON_EXTRACT(inbounds.settings, '$.clients')) AS client 
+			JSON_EACH(JSON_EXTRACT(inbounds.settings, '$.clients')) AS client
 		WHERE
 			protocol in ('vmess','vless','trojan','shadowsocks')
 			AND JSON_EXTRACT(client.value, '$.subId') = ? AND enable = ?
@@ -131,14 +152,31 @@ func (s *SubService) getClientTraffics(traffics []xray.ClientTraffic, email stri
 }
 
 func (s *SubService) getFallbackMaster(dest string, streamSettings string) (string, int, string, error) {
-	db := database.GetDB()
 	var inbound *model.Inbound
-	err := db.Model(model.Inbound{}).
-		Where("JSON_TYPE(settings, '$.fallbacks') = 'array'").
-		Where("EXISTS (SELECT * FROM json_each(settings, '$.fallbacks') WHERE json_extract(value, '$.dest') = ?)", dest).
-		Find(&inbound).Error
-	if err != nil {
-		return "", 0, "", err
+
+	if config.GetDBType() == "mongodb" {
+		allInbounds, err := database.GetProvider().GetAllInboundsWithClientStats()
+		if err != nil {
+			return "", 0, "", err
+		}
+		for _, ib := range allInbounds {
+			if strings.Contains(ib.Settings, dest) {
+				inbound = ib
+				break
+			}
+		}
+		if inbound == nil {
+			return "", 0, "", fmt.Errorf("no fallback master found for dest %s", dest)
+		}
+	} else {
+		db := database.GetDB()
+		err := db.Model(model.Inbound{}).
+			Where("JSON_TYPE(settings, '$.fallbacks') = 'array'").
+			Where("EXISTS (SELECT * FROM json_each(settings, '$.fallbacks') WHERE json_extract(value, '$.dest') = ?)", dest).
+			Find(&inbound).Error
+		if err != nil {
+			return "", 0, "", err
+		}
 	}
 
 	var stream map[string]any
