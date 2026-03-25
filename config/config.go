@@ -84,6 +84,14 @@ func GetMongoURI() string {
 	return fmt.Sprintf("mongodb://%s:%s/%s", host, port, dbName)
 }
 
+func GetMongoDBName() string {
+	dbName := os.Getenv("MONGO_DB")
+	if dbName == "" {
+		return "xui"
+	}
+	return dbName
+}
+
 func GetLogLevel() LogLevel {
 	if IsDebug() {
 		return Debug
