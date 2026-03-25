@@ -2050,6 +2050,98 @@ show_usage() {
     echo -e "--------------------------------------------"
 }
 
+install_mongodb() {
+    echo -e "${green}安装 MongoDB 数据库${plain}"
+    echo -e "${green}\t1.${plain} Debian/Ubuntu"
+    echo -e "${green}\t2.${plain} CentOS/RHEL/Rocky/Alma"
+    echo -e "${green}\t3.${plain} 退出"
+    read -p "请选择系统类型 [1-3]: " os_choice
+
+    case "$os_choice" in
+    1)
+        # Debian/Ubuntu
+        VERSION_CODENAME=$(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release 2>/dev/null || echo "bookworm")
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null
+        echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian ${VERSION_CODENAME}/mongodb-org/7.0 main" > /etc/apt/sources.list.d/mongodb-org-7.0.list
+        apt update && apt install -y mongodb-org
+        systemctl enable mongod
+        systemctl start mongod
+        ;;
+    2)
+        # CentOS/RHEL/Rocky/Alma
+        cat > /etc/yum.repos.d/mongodb-org-7.0.repo << 'REPO'
+[mongodb-org-7.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/7.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc
+REPO
+        yum install -y mongodb-org
+        systemctl enable mongod
+        systemctl start mongod
+        ;;
+    3)
+        return
+        ;;
+    *)
+        echo -e "${red}无效选择${plain}"
+        return
+        ;;
+    esac
+
+    if systemctl is-active --quiet mongod; then
+        echo -e "${green}MongoDB 安装成功并已启动${plain}"
+    else
+        echo -e "${red}MongoDB 安装失败，请检查日志${plain}"
+    fi
+}
+
+config_db_switch() {
+    echo -e "${green}配置数据库类型${plain}"
+    echo -e "${green}\t1.${plain} SQLite (默认)"
+    echo -e "${green}\t2.${plain} MongoDB"
+    echo -e "${green}\t3.${plain} 退出"
+    read -p "请选择数据库类型 [1-3]: " db_choice
+
+    local db_type_conf="/etc/x-ui/db-type.conf"
+
+    case "$db_choice" in
+    1)
+        echo "XUI_DB_TYPE=sqlite" > "$db_type_conf"
+        echo -e "${green}已切换到 SQLite 数据库${plain}"
+        echo -e "${green}重启 x-ui 以生效...${plain}"
+        x-ui restart
+        ;;
+    2)
+        echo "XUI_DB_TYPE=mongodb" > "$db_type_conf"
+        # Also create default mongodb.conf if it doesn't exist
+        local mongo_conf="/etc/x-ui/mongodb.conf"
+        if [ ! -f "$mongo_conf" ]; then
+            cat > "$mongo_conf" << 'CONF'
+MONGO_HOST=localhost
+MONGO_PORT=27017
+MONGO_DB=xui
+# MONGO_USER=
+# MONGO_PASS=
+CONF
+            echo -e "${green}已创建默认 MongoDB 配置: ${mongo_conf}${plain}"
+            echo -e "${green}请根据需要编辑配置文件后重启 x-ui${plain}"
+        fi
+        echo -e "${green}已切换到 MongoDB 数据库${plain}"
+        echo -e "${green}重启 x-ui 以生效...${plain}"
+        x-ui restart
+        ;;
+    3)
+        return
+        ;;
+    *)
+        echo -e "${red}无效选择${plain}"
+        return
+        ;;
+    esac
+}
+
 show_menu() {
     echo -e "
 ——————————————————————
@@ -2087,7 +2179,9 @@ show_menu() {
   ${green}22.${plain} 启用 BBR 
   ${green}23.${plain} 更新 Geo 文件
   ${green}24.${plain} Speedtest by Ookla
-  ${green}25.${plain} 安装订阅转换 
+  ${green}25.${plain} 安装订阅转换
+  ${green}26.${plain} 安装 MongoDB 数据库
+  ${green}27.${plain} 切换数据库类型
 ——————————————————————
   ${green}若在使用过程中有任何问题${plain}
   ${yellow}请加入〔X-Panel面板〕交流群${plain}
@@ -2121,7 +2215,7 @@ ${green}9、RackNerd极致性价比机器：${yellow}https://my.racknerd.com/aff
 ----------------------------------------------
 "
     show_status
-    echo && read -p "请输入选项 [0-25]: " num
+    echo && read -p "请输入选项 [0-27]: " num
 
     case "${num}" in
     0)
@@ -2202,8 +2296,14 @@ ${green}9、RackNerd极致性价比机器：${yellow}https://my.racknerd.com/aff
     25)
         subconverter
         ;;
+    26)
+        install_mongodb
+        ;;
+    27)
+        config_db_switch
+        ;;
     *)
-        LOGE "请输入正确的数字选项 [0-25]"
+        LOGE "请输入正确的数字选项 [0-27]"
         ;;
     esac
 }
