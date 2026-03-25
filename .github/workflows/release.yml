@@ -30,12 +30,12 @@ jobs:
       matrix:
         platform:
           - amd64
-          - arm64
-          - armv7
-          - armv6
-          - 386
-          - armv5
-          - s390x
+          # - arm64
+          # - armv7
+          # - armv6
+          # - 386
+          # - armv5
+          # - s390x
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -160,7 +160,7 @@ jobs:
         # 〔中文注释〕: 定义需要构建的 Windows CPU 架构，一般 amd64 就够了
         platform:
           - amd64
-          - 386
+          # - 386
     # 〔中文注释〕: 指定使用 Windows 最新版的虚拟环境
     runs-on: windows-latest
     steps:
