@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"x-ui/config"
 	"x-ui/database"
 	"x-ui/database/model"
 	"x-ui/logger"
@@ -33,6 +34,19 @@ func (s *InboundService) SetTelegramService(tgService TelegramService) {
 }
 
 func (s *InboundService) GetInbounds(userId int) ([]*model.Inbound, error) {
+	if config.GetDBType() == "mongodb" {
+		inbounds, err := database.GetProvider().GetInboundsWithClientStats()
+		if err != nil {
+			return nil, err
+		}
+		var filtered []*model.Inbound
+		for _, inbound := range inbounds {
+			if inbound.UserId == userId {
+				filtered = append(filtered, inbound)
+			}
+		}
+		return filtered, nil
+	}
 	db := database.GetDB()
 	var inbounds []*model.Inbound
 	err := db.Model(model.Inbound{}).Preload("ClientStats").Where("user_id = ?", userId).Find(&inbounds).Error
@@ -43,6 +57,9 @@ func (s *InboundService) GetInbounds(userId int) ([]*model.Inbound, error) {
 }
 
 func (s *InboundService) GetAllInbounds() ([]*model.Inbound, error) {
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().GetAllInboundsWithClientStats()
+	}
 	db := database.GetDB()
 	var inbounds []*model.Inbound
 	err := db.Model(model.Inbound{}).Preload("ClientStats").Find(&inbounds).Error
@@ -53,6 +70,27 @@ func (s *InboundService) GetAllInbounds() ([]*model.Inbound, error) {
 }
 
 func (s *InboundService) checkPortExist(listen string, port int, ignoreId int) (bool, error) {
+	if config.GetDBType() == "mongodb" {
+		inbounds, err := database.GetProvider().GetAllInboundsWithClientStats()
+		if err != nil {
+			return false, err
+		}
+		for _, inbound := range inbounds {
+			if inbound.Port != port {
+				continue
+			}
+			if ignoreId > 0 && inbound.Id == ignoreId {
+				continue
+			}
+			if listen == "" || listen == "0.0.0.0" || listen == "::" || listen == "::0" {
+				return true, nil
+			}
+			if inbound.Listen == listen || inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
 	db := database.GetDB()
 	if listen == "" || listen == "0.0.0.0" || listen == "::" || listen == "::0" {
 		db = db.Model(model.Inbound{}).Where("port = ?", port)
@@ -97,6 +135,9 @@ func (s *InboundService) GetClients(inbound *model.Inbound) ([]model.Client, err
 }
 
 func (s *InboundService) getAllEmails() ([]string, error) {
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().GetInboundEmails()
+	}
 	db := database.GetDB()
 	var emails []string
 	err := db.Raw(`
@@ -235,6 +276,55 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	// =================================================================
 	// 中文注释：【新增逻辑】开始：手动计算和分配 ID
 	// =================================================================
+	if config.GetDBType() == "mongodb" {
+		existingIDs, err := database.GetProvider().GetInboundIDs()
+		if err != nil {
+			return inbound, false, err
+		}
+		sort.Ints(existingIDs)
+		nextID := 1
+		for _, id := range existingIDs {
+			if id == nextID {
+				nextID++
+			} else {
+				break
+			}
+		}
+		inbound.Id = nextID
+
+		tx, err := database.GetProvider().BeginTransaction()
+		if err != nil {
+			return inbound, false, err
+		}
+		defer func() {
+			if err != nil {
+				tx.RollbackTransaction()
+			}
+		}()
+		err = tx.SaveInbound(inbound)
+		if err != nil {
+			return inbound, false, err
+		}
+		if len(inbound.ClientStats) == 0 {
+			for _, client := range clients {
+				clientTraffic := xray.ClientTraffic{}
+				clientTraffic.InboundId = inbound.Id
+				clientTraffic.Email = client.Email
+				clientTraffic.Total = client.TotalGB
+				clientTraffic.ExpiryTime = client.ExpiryTime
+				clientTraffic.Enable = true
+				clientTraffic.Up = 0
+				clientTraffic.Down = 0
+				clientTraffic.Reset = client.Reset
+				if err = tx.CreateClientTraffic(&clientTraffic); err != nil {
+					return inbound, false, err
+				}
+			}
+		}
+		if err = tx.CommitTransaction(); err != nil {
+			return inbound, false, err
+		}
+	} else {
 	// 1. 查询数据库中所有已存在的入站规则的 ID
 	var existingIDs []int
 	//    使用 Pluck 方法可以更高效地只查询出 id 这一列，而不是整个对象
@@ -289,6 +379,7 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	} else {
 		return inbound, false, err
 	}
+	}
 
 	// 中文注释：如果入站规则是启用的，则尝试通过 API 热加载到 Xray-core
 	needRestart := false
@@ -315,6 +406,48 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 }
 
 func (s *InboundService) DelInbound(id int) (bool, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		inbound, err := provider.GetInboundByID(id)
+		if err != nil {
+			return false, err
+		}
+		needRestart := false
+		if inbound.Enable {
+			s.xrayApi.Init(p.GetAPIPort())
+			err1 := s.xrayApi.DelInbound(inbound.Tag)
+			if err1 == nil {
+				logger.Debug("Inbound deleted by api:", inbound.Tag)
+			} else {
+				logger.Debug("Unable to delete inbound by api:", err1)
+				needRestart = true
+			}
+			s.xrayApi.Close()
+		}
+		clients, err := s.GetClients(inbound)
+		if err == nil {
+			emails := make([]string, 0, len(clients))
+			for _, client := range clients {
+				if client.Email != "" {
+					emails = append(emails, client.Email)
+				}
+			}
+			if len(emails) > 0 {
+				traffics, err := provider.GetClientTrafficsByEmails(emails)
+				if err == nil {
+					for _, t := range traffics {
+						provider.DeleteClientTrafficByID(t.Id)
+					}
+				}
+			}
+			for _, client := range clients {
+				if client.Email != "" {
+					provider.DeleteClientIpsByEmail(client.Email)
+				}
+			}
+		}
+		return needRestart, provider.DeleteInboundByID(id)
+	}
 	db := database.GetDB()
 
 	var tag string
@@ -358,6 +491,9 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 }
 
 func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().GetInboundByID(id)
+	}
 	db := database.GetDB()
 	inbound := &model.Inbound{}
 	err := db.Model(model.Inbound{}).First(inbound, id).Error
@@ -368,6 +504,162 @@ func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
 }
 
 func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		exist, err := s.checkPortExist(inbound.Listen, inbound.Port, inbound.Id)
+		if err != nil {
+			return inbound, false, err
+		}
+		if exist {
+			return inbound, false, common.NewError("Port already exists:", inbound.Port)
+		}
+
+		oldInbound, err := provider.GetInboundByID(inbound.Id)
+		if err != nil {
+			return inbound, false, err
+		}
+		tag := oldInbound.Tag
+
+		// Handle client traffic updates: delete removed, add new
+		oldClients, _ := s.GetClients(oldInbound)
+		newClients, _ := s.GetClients(inbound)
+		for _, oldClient := range oldClients {
+			found := false
+			for _, newClient := range newClients {
+				if oldClient.Email == newClient.Email {
+					found = true
+					break
+				}
+			}
+			if !found && oldClient.Email != "" {
+				traffics, err := provider.GetClientTrafficsByEmails([]string{oldClient.Email})
+				if err == nil && len(traffics) > 0 {
+					provider.DeleteClientTrafficByID(traffics[0].Id)
+				}
+			}
+		}
+		for _, newClient := range newClients {
+			found := false
+			for _, oldClient := range oldClients {
+				if newClient.Email == oldClient.Email {
+					found = true
+					break
+				}
+			}
+			if !found && newClient.Email != "" {
+				clientTraffic := xray.ClientTraffic{}
+				clientTraffic.InboundId = oldInbound.Id
+				clientTraffic.Email = newClient.Email
+				clientTraffic.Total = newClient.TotalGB
+				clientTraffic.ExpiryTime = newClient.ExpiryTime
+				clientTraffic.Enable = true
+				clientTraffic.Reset = newClient.Reset
+				provider.CreateClientTraffic(&clientTraffic)
+			}
+		}
+
+		// Preserve created_at and updated_at from old settings
+		{
+			var oldSettings map[string]any
+			_ = json.Unmarshal([]byte(oldInbound.Settings), &oldSettings)
+			emailToCreated := map[string]int64{}
+			emailToUpdated := map[string]int64{}
+			if oldSettings != nil {
+				if oc, ok := oldSettings["clients"].([]any); ok {
+					for _, it := range oc {
+						if m, ok2 := it.(map[string]any); ok2 {
+							if email, ok3 := m["email"].(string); ok3 {
+								switch v := m["created_at"].(type) {
+								case float64:
+									emailToCreated[email] = int64(v)
+								case int64:
+									emailToCreated[email] = v
+								}
+								switch v := m["updated_at"].(type) {
+								case float64:
+									emailToUpdated[email] = int64(v)
+								case int64:
+									emailToUpdated[email] = v
+								}
+							}
+						}
+					}
+				}
+			}
+			var newSettings map[string]any
+			if err2 := json.Unmarshal([]byte(inbound.Settings), &newSettings); err2 == nil && newSettings != nil {
+				now := time.Now().Unix() * 1000
+				if nSlice, ok := newSettings["clients"].([]any); ok {
+					for i := range nSlice {
+						if m, ok2 := nSlice[i].(map[string]any); ok2 {
+							email, _ := m["email"].(string)
+							if _, ok3 := m["created_at"]; !ok3 {
+								if v, ok4 := emailToCreated[email]; ok4 && v > 0 {
+									m["created_at"] = v
+								} else {
+									m["created_at"] = now
+								}
+							}
+							if _, hasUpdated := m["updated_at"]; !hasUpdated {
+								if v, ok4 := emailToUpdated[email]; ok4 && v > 0 {
+									m["updated_at"] = v
+								}
+							}
+							nSlice[i] = m
+						}
+					}
+					newSettings["clients"] = nSlice
+					if bs, err3 := json.MarshalIndent(newSettings, "", "  "); err3 == nil {
+						inbound.Settings = string(bs)
+					}
+				}
+			}
+		}
+
+		oldInbound.Up = inbound.Up
+		oldInbound.Down = inbound.Down
+		oldInbound.Total = inbound.Total
+		oldInbound.Remark = inbound.Remark
+		oldInbound.Enable = inbound.Enable
+		oldInbound.ExpiryTime = inbound.ExpiryTime
+		oldInbound.DeviceLimit = inbound.DeviceLimit
+		oldInbound.Listen = inbound.Listen
+		oldInbound.Port = inbound.Port
+		oldInbound.Protocol = inbound.Protocol
+		oldInbound.Settings = inbound.Settings
+		oldInbound.StreamSettings = inbound.StreamSettings
+		oldInbound.Sniffing = inbound.Sniffing
+		if inbound.Listen == "" || inbound.Listen == "0.0.0.0" || inbound.Listen == "::" || inbound.Listen == "::0" {
+			oldInbound.Tag = fmt.Sprintf("inbound-%v", inbound.Port)
+		} else {
+			oldInbound.Tag = fmt.Sprintf("inbound-%v:%v", inbound.Listen, inbound.Port)
+		}
+
+		needRestart := false
+		s.xrayApi.Init(p.GetAPIPort())
+		if s.xrayApi.DelInbound(tag) == nil {
+			logger.Debug("Old inbound deleted by api:", tag)
+		}
+		if inbound.Enable {
+			inboundJson, err2 := json.MarshalIndent(oldInbound.GenXrayInboundConfig(), "", "  ")
+			if err2 != nil {
+				logger.Debug("Unable to marshal updated inbound config:", err2)
+				needRestart = true
+			} else {
+				err2 = s.xrayApi.AddInbound(inboundJson)
+				if err2 == nil {
+					logger.Debug("Updated inbound added by api:", oldInbound.Tag)
+				} else {
+					logger.Debug("Unable to update inbound by api:", err2)
+					needRestart = true
+				}
+			}
+		}
+		s.xrayApi.Close()
+
+		err = provider.SaveInbound(oldInbound)
+		return inbound, needRestart, err
+	}
 	exist, err := s.checkPortExist(inbound.Listen, inbound.Port, inbound.Id)
 	if err != nil {
 		return inbound, false, err
@@ -549,6 +841,142 @@ func (s *InboundService) updateClientTraffics(tx *gorm.DB, oldInbound *model.Inb
 }
 
 func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		clients, err := s.GetClients(data)
+		if err != nil {
+			return false, err
+		}
+
+		var settings map[string]any
+		err = json.Unmarshal([]byte(data.Settings), &settings)
+		if err != nil {
+			return false, err
+		}
+
+		interfaceClients := settings["clients"].([]any)
+		nowTs := time.Now().Unix() * 1000
+		for i := range interfaceClients {
+			if cm, ok := interfaceClients[i].(map[string]any); ok {
+				if _, ok2 := cm["created_at"]; !ok2 {
+					cm["created_at"] = nowTs
+				}
+				cm["updated_at"] = nowTs
+				cm["speedLimit"] = clients[i].SpeedLimit
+				interfaceClients[i] = cm
+			}
+		}
+		existEmail, err := s.checkEmailsExistForClients(clients)
+		if err != nil {
+			return false, err
+		}
+		if existEmail != "" {
+			return false, common.NewError("Duplicate email:", existEmail)
+		}
+
+		oldInbound, err := provider.GetInboundByID(data.Id)
+		if err != nil {
+			return false, err
+		}
+
+		for _, client := range clients {
+			switch oldInbound.Protocol {
+			case "trojan":
+				if client.Password == "" {
+					return false, common.NewError("empty client ID")
+				}
+			case "shadowsocks":
+				if client.Email == "" {
+					return false, common.NewError("empty client ID")
+				}
+			default:
+				if client.ID == "" {
+					return false, common.NewError("empty client ID")
+				}
+			}
+		}
+
+		var oldSettings map[string]any
+		err = json.Unmarshal([]byte(oldInbound.Settings), &oldSettings)
+		if err != nil {
+			return false, err
+		}
+
+		oldClients := oldSettings["clients"].([]any)
+		oldClients = append(oldClients, interfaceClients...)
+		oldSettings["clients"] = oldClients
+
+		newSettings, err := json.MarshalIndent(oldSettings, "", "  ")
+		if err != nil {
+			return false, err
+		}
+		oldInbound.Settings = string(newSettings)
+
+		tx, err := provider.BeginTransaction()
+		if err != nil {
+			return false, err
+		}
+		defer func() {
+			if err != nil {
+				tx.RollbackTransaction()
+			}
+		}()
+
+		for _, client := range clients {
+			if len(client.Email) > 0 {
+				clientTraffic := xray.ClientTraffic{}
+				clientTraffic.InboundId = data.Id
+				clientTraffic.Email = client.Email
+				clientTraffic.Total = client.TotalGB
+				clientTraffic.ExpiryTime = client.ExpiryTime
+				clientTraffic.Enable = true
+				clientTraffic.Up = 0
+				clientTraffic.Down = 0
+				clientTraffic.Reset = client.Reset
+				tx.CreateClientTraffic(&clientTraffic)
+			}
+		}
+
+		err = tx.SaveInbound(oldInbound)
+		if err != nil {
+			return false, err
+		}
+		err = tx.CommitTransaction()
+		if err != nil {
+			return false, err
+		}
+
+		needRestart := false
+		s.xrayApi.Init(p.GetAPIPort())
+		for _, client := range clients {
+			if len(client.Email) > 0 && client.Enable {
+				cipher := ""
+				if oldInbound.Protocol == "shadowsocks" {
+					cipher = oldSettings["method"].(string)
+				}
+				clientMap := map[string]any{
+					"email":    client.Email,
+					"id":       client.ID,
+					"security": client.Security,
+					"flow":     client.Flow,
+					"password": client.Password,
+					"cipher":   cipher,
+					"level":    client.SpeedLimit,
+				}
+				err1 := s.xrayApi.AddUser(string(oldInbound.Protocol), oldInbound.Tag, clientMap)
+				if err1 == nil {
+					logger.Debug("Client added by api:", client.Email)
+				} else {
+					logger.Debug("Error in adding client by api:", err1)
+					needRestart = true
+				}
+			} else {
+				needRestart = true
+			}
+		}
+		s.xrayApi.Close()
+		return needRestart, nil
+	}
 	clients, err := s.GetClients(data)
 	if err != nil {
 		return false, err
@@ -680,6 +1108,82 @@ func (s *InboundService) AddInboundClient(data *model.Inbound) (bool, error) {
 }
 
 func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		oldInbound, err := provider.GetInboundByID(inboundId)
+		if err != nil {
+			logger.Error("Load Old Data Error")
+			return false, err
+		}
+		var settings map[string]any
+		err = json.Unmarshal([]byte(oldInbound.Settings), &settings)
+		if err != nil {
+			return false, err
+		}
+
+		email := ""
+		client_key := "id"
+		if oldInbound.Protocol == "trojan" {
+			client_key = "password"
+		}
+		if oldInbound.Protocol == "shadowsocks" {
+			client_key = "email"
+		}
+
+		interfaceClients := settings["clients"].([]any)
+		var newClients []any
+		needApiDel := false
+		for _, client := range interfaceClients {
+			c := client.(map[string]any)
+			c_id := c[client_key].(string)
+			if c_id == clientId {
+				email, _ = c["email"].(string)
+				needApiDel, _ = c["enable"].(bool)
+			} else {
+				newClients = append(newClients, client)
+			}
+		}
+
+		if len(newClients) == 0 {
+			return false, common.NewError("no client remained in Inbound")
+		}
+
+		settings["clients"] = newClients
+		newSettings, err := json.MarshalIndent(settings, "", "  ")
+		if err != nil {
+			return false, err
+		}
+		oldInbound.Settings = string(newSettings)
+
+		if email != "" {
+			provider.DeleteClientIpsByEmail(email)
+			traffics, err := provider.GetClientTrafficsByEmails([]string{email})
+			notDepleted := true
+			if err == nil && len(traffics) > 0 {
+				notDepleted = traffics[0].Enable
+				provider.DeleteClientTrafficByID(traffics[0].Id)
+			}
+			needRestart := false
+			if needApiDel && notDepleted {
+				s.xrayApi.Init(p.GetAPIPort())
+				err1 := s.xrayApi.RemoveUser(oldInbound.Tag, email)
+				if err1 == nil {
+					logger.Debug("Client deleted by api:", email)
+					needRestart = false
+				} else {
+					if strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", email)) {
+						logger.Debug("User is already deleted. Nothing to do more...")
+					} else {
+						logger.Debug("Error in deleting client by api:", err1)
+						needRestart = true
+					}
+				}
+				s.xrayApi.Close()
+			}
+			return needRestart, provider.SaveInbound(oldInbound)
+		}
+		return false, provider.SaveInbound(oldInbound)
+	}
 	oldInbound, err := s.GetInbound(inboundId)
 	if err != nil {
 		logger.Error("Load Old Data Error")
@@ -768,6 +1272,205 @@ func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool,
 }
 
 func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId string) (bool, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		clients, err := s.GetClients(data)
+		if err != nil {
+			return false, err
+		}
+
+		var settings map[string]any
+		err = json.Unmarshal([]byte(data.Settings), &settings)
+		if err != nil {
+			return false, err
+		}
+		interfaceClients := settings["clients"].([]any)
+
+		oldInbound, err := provider.GetInboundByID(data.Id)
+		if err != nil {
+			return false, err
+		}
+
+		oldClients, err := s.GetClients(oldInbound)
+		if err != nil {
+			return false, err
+		}
+
+		oldEmail := ""
+		newClientId := ""
+		clientIndex := -1
+		for index, oldClient := range oldClients {
+			oldClientId := ""
+			switch oldInbound.Protocol {
+			case "trojan":
+				oldClientId = oldClient.Password
+				newClientId = clients[0].Password
+			case "shadowsocks":
+				oldClientId = oldClient.Email
+				newClientId = clients[0].Email
+			default:
+				oldClientId = oldClient.ID
+				newClientId = clients[0].ID
+			}
+			if clientId == oldClientId {
+				oldEmail = oldClient.Email
+				clientIndex = index
+				break
+			}
+		}
+
+		if newClientId == "" || clientIndex == -1 {
+			return false, common.NewError("empty client ID")
+		}
+
+		if len(clients[0].Email) > 0 && clients[0].Email != oldEmail {
+			existEmail, err := s.checkEmailsExistForClients(clients)
+			if err != nil {
+				return false, err
+			}
+			if existEmail != "" {
+				return false, common.NewError("Duplicate email:", existEmail)
+			}
+		}
+
+		var oldSettings map[string]any
+		err = json.Unmarshal([]byte(oldInbound.Settings), &oldSettings)
+		if err != nil {
+			return false, err
+		}
+		settingsClients := oldSettings["clients"].([]any)
+
+		var preservedCreated any
+		if clientIndex >= 0 && clientIndex < len(settingsClients) {
+			if oldMap, ok := settingsClients[clientIndex].(map[string]any); ok {
+				if v, ok2 := oldMap["created_at"]; ok2 {
+					preservedCreated = v
+				}
+			}
+		}
+		if len(interfaceClients) > 0 {
+			if newMap, ok := interfaceClients[0].(map[string]any); ok {
+				if preservedCreated == nil {
+					preservedCreated = time.Now().Unix() * 1000
+				}
+				newMap["created_at"] = preservedCreated
+				newMap["updated_at"] = time.Now().Unix() * 1000
+				newMap["speedLimit"] = clients[0].SpeedLimit
+				interfaceClients[0] = newMap
+			}
+		}
+		settingsClients[clientIndex] = interfaceClients[0]
+		oldSettings["clients"] = settingsClients
+
+		newSettings, err := json.MarshalIndent(oldSettings, "", "  ")
+		if err != nil {
+			return false, err
+		}
+		oldInbound.Settings = string(newSettings)
+
+		tx, err := provider.BeginTransaction()
+		if err != nil {
+			return false, err
+		}
+		defer func() {
+			if err != nil {
+				tx.RollbackTransaction()
+			}
+		}()
+
+		if len(clients[0].Email) > 0 {
+			if len(oldEmail) > 0 {
+				traffics, err := tx.GetClientTrafficsByEmails([]string{oldEmail})
+				if err == nil && len(traffics) > 0 {
+					traffic := traffics[0]
+					traffic.Email = clients[0].Email
+					traffic.Total = clients[0].TotalGB
+					traffic.ExpiryTime = clients[0].ExpiryTime
+					traffic.Enable = true
+					traffic.Reset = clients[0].Reset
+					tx.SaveClientTraffic(traffic)
+				}
+				if oldEmail != clients[0].Email {
+					ips, err := provider.GetInboundClientIpsByEmail(oldEmail)
+					if err == nil && ips != nil {
+						ips.ClientEmail = clients[0].Email
+						provider.SaveInboundClientIps(ips)
+					}
+				}
+			} else {
+				clientTraffic := xray.ClientTraffic{}
+				clientTraffic.InboundId = data.Id
+				clientTraffic.Email = clients[0].Email
+				clientTraffic.Total = clients[0].TotalGB
+				clientTraffic.ExpiryTime = clients[0].ExpiryTime
+				clientTraffic.Enable = true
+				clientTraffic.Reset = clients[0].Reset
+				tx.CreateClientTraffic(&clientTraffic)
+			}
+		} else {
+			if len(oldEmail) > 0 {
+				traffics, err := tx.GetClientTrafficsByEmails([]string{oldEmail})
+				if err == nil && len(traffics) > 0 {
+					tx.DeleteClientTrafficByID(traffics[0].Id)
+				}
+				tx.DeleteClientIpsByEmail(oldEmail)
+			}
+		}
+
+		err = tx.SaveInbound(oldInbound)
+		if err != nil {
+			return false, err
+		}
+		err = tx.CommitTransaction()
+		if err != nil {
+			return false, err
+		}
+
+		needRestart := false
+		if len(oldEmail) > 0 {
+			s.xrayApi.Init(p.GetAPIPort())
+			if oldClients[clientIndex].Enable {
+				err1 := s.xrayApi.RemoveUser(oldInbound.Tag, oldEmail)
+				if err1 == nil {
+					logger.Debug("Old client deleted by api:", oldEmail)
+				} else {
+					if strings.Contains(err1.Error(), fmt.Sprintf("User %s not found.", oldEmail)) {
+						logger.Debug("User is already deleted. Nothing to do more...")
+					} else {
+						logger.Debug("Error in deleting client by api:", err1)
+						needRestart = true
+					}
+				}
+			}
+			if clients[0].Enable {
+				cipher := ""
+				if oldInbound.Protocol == "shadowsocks" {
+					cipher = oldSettings["method"].(string)
+				}
+				clientMap := map[string]any{
+					"email":    clients[0].Email,
+					"id":       clients[0].ID,
+					"security": clients[0].Security,
+					"flow":     clients[0].Flow,
+					"password": clients[0].Password,
+					"cipher":   cipher,
+					"level":    clients[0].SpeedLimit,
+				}
+				err1 := s.xrayApi.AddUser(string(oldInbound.Protocol), oldInbound.Tag, clientMap)
+				if err1 == nil {
+					logger.Debug("Client edited by api:", clients[0].Email)
+				} else {
+					logger.Debug("Error in adding client by api:", err1)
+					needRestart = true
+				}
+			}
+			s.xrayApi.Close()
+		} else {
+			logger.Debug("Client old email not found")
+			needRestart = true
+		}
+		return needRestart, nil
+	}
 	clients, err := s.GetClients(data)
 	if err != nil {
 		return false, err
@@ -954,6 +1657,107 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 }
 
 func (s *InboundService) AddTraffic(inboundTraffics []*xray.Traffic, clientTraffics []*xray.ClientTraffic) (error, bool) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+
+		// Add inbound traffic
+		for _, traffic := range inboundTraffics {
+			if traffic.IsInbound {
+				inbounds, err := provider.GetAllInboundsWithClientStats()
+				if err != nil {
+					return err, false
+				}
+				for _, inbound := range inbounds {
+					if inbound.Tag == traffic.Tag {
+						inbound.Up += traffic.Up
+						inbound.Down += traffic.Down
+						inbound.AllTime += traffic.Up + traffic.Down
+						provider.SaveInbound(inbound)
+						break
+					}
+				}
+			}
+		}
+
+		// Add client traffic
+		if len(clientTraffics) > 0 {
+			var onlineClients []string
+			emails := make([]string, 0, len(clientTraffics))
+			for _, traffic := range clientTraffics {
+				emails = append(emails, traffic.Email)
+			}
+			dbClientTraffics, err := provider.GetClientTrafficsByEmails(emails)
+			if err == nil && len(dbClientTraffics) > 0 {
+				for dbIdx := range dbClientTraffics {
+					for tIdx := range clientTraffics {
+						if dbClientTraffics[dbIdx].Email == clientTraffics[tIdx].Email {
+							dbClientTraffics[dbIdx].Up += clientTraffics[tIdx].Up
+							dbClientTraffics[dbIdx].Down += clientTraffics[tIdx].Down
+							dbClientTraffics[dbIdx].AllTime += clientTraffics[tIdx].Up + clientTraffics[tIdx].Down
+							if clientTraffics[tIdx].Up+clientTraffics[tIdx].Down > 0 {
+								onlineClients = append(onlineClients, clientTraffics[tIdx].Email)
+								dbClientTraffics[dbIdx].LastOnline = time.Now().UnixMilli()
+							}
+							break
+						}
+					}
+				}
+				provider.UpdateClientTrafficsBatch(dbClientTraffics)
+			}
+			if p != nil {
+				p.SetOnlineClients(onlineClients)
+			}
+		} else if p != nil {
+			p.SetOnlineClients(nil)
+		}
+
+		// Disable invalid inbounds
+		needRestart := false
+		now := time.Now().Unix() * 1000
+		allInbounds, _ := provider.GetAllInboundsWithClientStats()
+		for _, inbound := range allInbounds {
+			if inbound.Enable && ((inbound.Total > 0 && inbound.Up+inbound.Down >= inbound.Total) || (inbound.ExpiryTime > 0 && inbound.ExpiryTime <= now)) {
+				if p != nil {
+					s.xrayApi.Init(p.GetAPIPort())
+					err1 := s.xrayApi.DelInbound(inbound.Tag)
+					if err1 == nil {
+						logger.Debug("Inbound disabled by api:", inbound.Tag)
+					} else {
+						logger.Debug("Error in disabling inbound by api:", err1)
+						needRestart = true
+					}
+					s.xrayApi.Close()
+				}
+				inbound.Enable = false
+				provider.SaveInbound(inbound)
+			}
+		}
+
+		// Disable invalid clients
+		allEmails, _ := provider.GetInboundEmails()
+		clientTrafficsAll, _ := provider.GetClientTrafficsByEmails(allEmails)
+		for _, ct := range clientTrafficsAll {
+			if ct.Enable && ((ct.Total > 0 && ct.Up+ct.Down >= ct.Total) || (ct.ExpiryTime > 0 && ct.ExpiryTime <= now)) {
+				ct.Enable = false
+				provider.SaveClientTraffic(ct)
+				if p != nil {
+					inbound, err := provider.GetInboundByID(ct.InboundId)
+					if err == nil {
+						s.xrayApi.Init(p.GetAPIPort())
+						err1 := s.xrayApi.RemoveUser(inbound.Tag, ct.Email)
+						if err1 == nil {
+							logger.Debug("Client disabled by api:", ct.Email)
+						} else {
+							needRestart = true
+						}
+						s.xrayApi.Close()
+					}
+				}
+			}
+		}
+
+		return nil, needRestart
+	}
 	var err error
 	db := database.GetDB()
 	tx := db.Begin()
@@ -1316,6 +2120,18 @@ func (s *InboundService) disableInvalidClients(tx *gorm.DB) (bool, int64, error)
 }
 
 func (s *InboundService) GetInboundTags() (string, error) {
+	if config.GetDBType() == "mongodb" {
+		inbounds, err := database.GetProvider().GetAllInboundsWithClientStats()
+		if err != nil {
+			return "", err
+		}
+		var tags []string
+		for _, inbound := range inbounds {
+			tags = append(tags, inbound.Tag)
+		}
+		result, _ := json.Marshal(tags)
+		return string(result), nil
+	}
 	db := database.GetDB()
 	var inboundTags []string
 	err := db.Model(model.Inbound{}).Select("tag").Find(&inboundTags).Error
@@ -1327,6 +2143,10 @@ func (s *InboundService) GetInboundTags() (string, error) {
 }
 
 func (s *InboundService) MigrationRemoveOrphanedTraffics() {
+	if config.GetDBType() == "mongodb" {
+		database.GetProvider().MigrationRemoveOrphanedTraffics()
+		return
+	}
 	db := database.GetDB()
 	db.Exec(`
 		DELETE FROM client_traffics
@@ -1380,6 +2200,18 @@ func (s *InboundService) DelClientIPs(tx *gorm.DB, email string) error {
 }
 
 func (s *InboundService) GetClientInboundByTrafficID(trafficId int) (traffic *xray.ClientTraffic, inbound *model.Inbound, err error) {
+	if config.GetDBType() == "mongodb" {
+		traffics, err := database.GetProvider().GetClientTrafficsByIDs([]int{trafficId})
+		if err != nil {
+			logger.Warningf("Error retrieving ClientTraffic with trafficId %d: %v", trafficId, err)
+			return nil, nil, err
+		}
+		if len(traffics) > 0 {
+			inbound, err = s.GetInbound(traffics[0].InboundId)
+			return traffics[0], inbound, err
+		}
+		return nil, nil, nil
+	}
 	db := database.GetDB()
 	var traffics []*xray.ClientTraffic
 	err = db.Model(xray.ClientTraffic{}).Where("id = ?", trafficId).Find(&traffics).Error
@@ -1395,6 +2227,18 @@ func (s *InboundService) GetClientInboundByTrafficID(trafficId int) (traffic *xr
 }
 
 func (s *InboundService) GetClientInboundByEmail(email string) (traffic *xray.ClientTraffic, inbound *model.Inbound, err error) {
+	if config.GetDBType() == "mongodb" {
+		traffics, err := database.GetProvider().GetClientTrafficsByEmails([]string{email})
+		if err != nil {
+			logger.Warningf("Error retrieving ClientTraffic with email %s: %v", email, err)
+			return nil, nil, err
+		}
+		if len(traffics) > 0 {
+			inbound, err = s.GetInbound(traffics[0].InboundId)
+			return traffics[0], inbound, err
+		}
+		return nil, nil, nil
+	}
 	db := database.GetDB()
 	var traffics []*xray.ClientTraffic
 	err = db.Model(xray.ClientTraffic{}).Where("email = ?", email).Find(&traffics).Error
@@ -1766,6 +2610,20 @@ func (s *InboundService) ResetClientTrafficLimitByEmail(clientEmail string, tota
 }
 
 func (s *InboundService) ResetClientTrafficByEmail(clientEmail string) error {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		traffics, err := provider.GetClientTrafficsByEmails([]string{clientEmail})
+		if err != nil {
+			return err
+		}
+		if len(traffics) > 0 {
+			traffics[0].Enable = true
+			traffics[0].Up = 0
+			traffics[0].Down = 0
+			return provider.SaveClientTraffic(traffics[0])
+		}
+		return nil
+	}
 	db := database.GetDB()
 
 	result := db.Model(xray.ClientTraffic{}).
@@ -1780,6 +2638,60 @@ func (s *InboundService) ResetClientTrafficByEmail(clientEmail string) error {
 }
 
 func (s *InboundService) ResetClientTraffic(id int, clientEmail string) (bool, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		needRestart := false
+		traffics, err := provider.GetClientTrafficsByEmails([]string{clientEmail})
+		if err != nil {
+			return false, err
+		}
+		if len(traffics) == 0 {
+			return false, common.NewError("traffic not found for email:", clientEmail)
+		}
+		traffic := traffics[0]
+
+		if !traffic.Enable {
+			inbound, err := provider.GetInboundByID(id)
+			if err != nil {
+				return false, err
+			}
+			clients, _ := s.GetClients(inbound)
+			for _, client := range clients {
+				if client.Email == clientEmail && client.Enable {
+					s.xrayApi.Init(p.GetAPIPort())
+					cipher := ""
+					if string(inbound.Protocol) == "shadowsocks" {
+						var oldSettings map[string]any
+						err = json.Unmarshal([]byte(inbound.Settings), &oldSettings)
+						if err == nil {
+							cipher = oldSettings["method"].(string)
+						}
+					}
+					err1 := s.xrayApi.AddUser(string(inbound.Protocol), inbound.Tag, map[string]any{
+						"email":    client.Email,
+						"id":       client.ID,
+						"security": client.Security,
+						"flow":     client.Flow,
+						"password": client.Password,
+						"cipher":   cipher,
+					})
+					if err1 == nil {
+						logger.Debug("Client enabled due to reset traffic:", clientEmail)
+					} else {
+						logger.Debug("Error in enabling client by api:", err1)
+						needRestart = true
+					}
+					s.xrayApi.Close()
+					break
+				}
+			}
+		}
+
+		traffic.Up = 0
+		traffic.Down = 0
+		traffic.Enable = true
+		return needRestart, provider.SaveClientTraffic(traffic)
+	}
 	needRestart := false
 
 	traffic, err := s.GetClientTrafficByEmail(clientEmail)
@@ -1842,6 +2754,23 @@ func (s *InboundService) ResetClientTraffic(id int, clientEmail string) (bool, e
 }
 
 func (s *InboundService) ResetAllClientTraffics(id int) error {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		allEmails, _ := provider.GetInboundEmails()
+		traffics, err := provider.GetClientTrafficsByEmails(allEmails)
+		if err != nil {
+			return err
+		}
+		for _, t := range traffics {
+			if (id == -1 && t.InboundId > 0) || (id != -1 && t.InboundId == id) {
+				t.Enable = true
+				t.Up = 0
+				t.Down = 0
+				provider.SaveClientTraffic(t)
+			}
+		}
+		return nil
+	}
 	db := database.GetDB()
 
 	whereText := "inbound_id "
@@ -1860,6 +2789,19 @@ func (s *InboundService) ResetAllClientTraffics(id int) error {
 }
 
 func (s *InboundService) ResetAllTraffics() error {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		inbounds, err := provider.GetAllInboundsWithClientStats()
+		if err != nil {
+			return err
+		}
+		for _, inbound := range inbounds {
+			inbound.Up = 0
+			inbound.Down = 0
+			provider.SaveInbound(inbound)
+		}
+		return nil
+	}
 	db := database.GetDB()
 
 	result := db.Model(model.Inbound{}).
@@ -1871,6 +2813,90 @@ func (s *InboundService) ResetAllTraffics() error {
 }
 
 func (s *InboundService) DelDepletedClients(id int) (err error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		tx, err := provider.BeginTransaction()
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err != nil {
+				tx.RollbackTransaction()
+			}
+		}()
+
+		allEmails, _ := provider.GetInboundEmails()
+		allTraffics, err := provider.GetClientTrafficsByEmails(allEmails)
+		if err != nil {
+			return err
+		}
+
+		// Group depleted clients by inbound_id
+		type depletedGroup struct {
+			inboundId int
+			emails    []string
+		}
+		groupMap := map[int]*depletedGroup{}
+		for _, t := range allTraffics {
+			if !t.Enable && t.Reset == 0 {
+				if (id < 0 && t.InboundId > 0) || (id >= 0 && t.InboundId == id) {
+					if _, ok := groupMap[t.InboundId]; !ok {
+						groupMap[t.InboundId] = &depletedGroup{inboundId: t.InboundId}
+					}
+					groupMap[t.InboundId].emails = append(groupMap[t.InboundId].emails, t.Email)
+				}
+			}
+		}
+
+		for _, dg := range groupMap {
+			oldInbound, err := s.GetInbound(dg.inboundId)
+			if err != nil {
+				continue
+			}
+			var oldSettings map[string]any
+			json.Unmarshal([]byte(oldInbound.Settings), &oldSettings)
+			if oldSettings == nil {
+				continue
+			}
+			oldClients := oldSettings["clients"].([]any)
+			var newClients []any
+			for _, client := range oldClients {
+				deplete := false
+				c := client.(map[string]any)
+				for _, email := range dg.emails {
+					if email == c["email"].(string) {
+						deplete = true
+						break
+					}
+				}
+				if !deplete {
+					newClients = append(newClients, client)
+				}
+			}
+			if len(newClients) > 0 {
+				oldSettings["clients"] = newClients
+				newSettings, err := json.MarshalIndent(oldSettings, "", "  ")
+				if err != nil {
+					continue
+				}
+				oldInbound.Settings = string(newSettings)
+				tx.SaveInbound(oldInbound)
+			} else {
+				s.DelInbound(dg.inboundId)
+			}
+		}
+
+		// Delete depleted traffics
+		for _, t := range allTraffics {
+			if !t.Enable && t.Reset == 0 {
+				if (id < 0 && t.InboundId > 0) || (id >= 0 && t.InboundId == id) {
+					tx.DeleteClientTrafficByID(t.Id)
+				}
+			}
+		}
+
+		return tx.CommitTransaction()
+	}
 	db := database.GetDB()
 	tx := db.Begin()
 	defer func() {
@@ -1949,6 +2975,33 @@ func (s *InboundService) DelDepletedClients(id int) (err error) {
 }
 
 func (s *InboundService) GetClientTrafficTgBot(tgId int64) ([]*xray.ClientTraffic, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		allInbounds, err := provider.GetAllInboundsWithClientStats()
+		if err != nil {
+			return nil, err
+		}
+		var emails []string
+		for _, inbound := range allInbounds {
+			clients, err := s.GetClients(inbound)
+			if err != nil {
+				continue
+			}
+			for _, client := range clients {
+				if client.TgID == tgId {
+					emails = append(emails, client.Email)
+				}
+			}
+		}
+		if len(emails) == 0 {
+			return nil, nil
+		}
+		traffics, err := provider.GetClientTrafficsByEmails(emails)
+		if err != nil {
+			return nil, err
+		}
+		return traffics, nil
+	}
 	db := database.GetDB()
 	var inbounds []*model.Inbound
 
@@ -1988,6 +3041,17 @@ func (s *InboundService) GetClientTrafficTgBot(tgId int64) ([]*xray.ClientTraffi
 }
 
 func (s *InboundService) GetClientTrafficByEmail(email string) (traffic *xray.ClientTraffic, err error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		traffics, err := provider.GetClientTrafficsByEmails([]string{email})
+		if err != nil {
+			return nil, err
+		}
+		if len(traffics) > 0 {
+			return traffics[0], nil
+		}
+		return nil, nil
+	}
 	db := database.GetDB()
 	var traffics []*xray.ClientTraffic
 
@@ -2004,6 +3068,20 @@ func (s *InboundService) GetClientTrafficByEmail(email string) (traffic *xray.Cl
 }
 
 func (s *InboundService) UpdateClientTrafficByEmail(email string, upload int64, download int64) error {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		traffics, err := provider.GetClientTrafficsByEmails([]string{email})
+		if err != nil {
+			return err
+		}
+		if len(traffics) == 0 {
+			return nil
+		}
+		traffic := traffics[0]
+		traffic.Up = upload
+		traffic.Down = download
+		return provider.SaveClientTraffic(traffic)
+	}
 	db := database.GetDB()
 
 	result := db.Model(xray.ClientTraffic{}).
@@ -2019,6 +3097,37 @@ func (s *InboundService) UpdateClientTrafficByEmail(email string, upload int64, 
 }
 
 func (s *InboundService) GetClientTrafficByID(id string) ([]xray.ClientTraffic, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		allInbounds, err := provider.GetAllInboundsWithClientStats()
+		if err != nil {
+			return nil, err
+		}
+		var emails []string
+		for _, inbound := range allInbounds {
+			clients, err := s.GetClients(inbound)
+			if err != nil {
+				continue
+			}
+			for _, client := range clients {
+				if client.ID == id {
+					emails = append(emails, client.Email)
+				}
+			}
+		}
+		if len(emails) == 0 {
+			return []xray.ClientTraffic{}, nil
+		}
+		traffics, err := provider.GetClientTrafficsByEmails(emails)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]xray.ClientTraffic, len(traffics))
+		for i, t := range traffics {
+			result[i] = *t
+		}
+		return result, nil
+	}
 	db := database.GetDB()
 	var traffics []xray.ClientTraffic
 
@@ -2038,6 +3147,44 @@ func (s *InboundService) GetClientTrafficByID(id string) ([]xray.ClientTraffic, 
 }
 
 func (s *InboundService) SearchClientTraffic(query string) (traffic *xray.ClientTraffic, err error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		allInbounds, err := provider.GetAllInboundsWithClientStats()
+		if err != nil {
+			return nil, err
+		}
+		traffic = &xray.ClientTraffic{}
+		for _, inbound := range allInbounds {
+			if strings.Contains(inbound.Settings, "\""+query+"\"") {
+				traffic.InboundId = inbound.Id
+				settings := map[string][]model.Client{}
+				if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+					continue
+				}
+				clients := settings["clients"]
+				for _, client := range clients {
+					if (client.ID == query || client.Password == query) && client.Email != "" {
+						traffic.Email = client.Email
+						break
+					}
+				}
+				if traffic.Email != "" {
+					break
+				}
+			}
+		}
+		if traffic.Email == "" {
+			return nil, fmt.Errorf("no client found with query %s", query)
+		}
+		traffics, err := provider.GetClientTrafficsByEmails([]string{traffic.Email})
+		if err != nil {
+			return nil, err
+		}
+		if len(traffics) == 0 {
+			return nil, fmt.Errorf("no traffic found for email %s", traffic.Email)
+		}
+		return traffics[0], nil
+	}
 	db := database.GetDB()
 	inbound := &model.Inbound{}
 	traffic = &xray.ClientTraffic{}
@@ -2090,6 +3237,14 @@ func (s *InboundService) SearchClientTraffic(query string) (traffic *xray.Client
 }
 
 func (s *InboundService) GetInboundClientIps(clientEmail string) (string, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		ips, err := provider.GetInboundClientIpsByEmail(clientEmail)
+		if err != nil {
+			return "", err
+		}
+		return ips.Ips, nil
+	}
 	db := database.GetDB()
 	InboundClientIps := &model.InboundClientIps{}
 	err := db.Model(model.InboundClientIps{}).Where("client_email = ?", clientEmail).First(InboundClientIps).Error
@@ -2100,6 +3255,10 @@ func (s *InboundService) GetInboundClientIps(clientEmail string) (string, error)
 }
 
 func (s *InboundService) ClearClientIps(clientEmail string) error {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		return provider.ClearClientIpsByEmail(clientEmail)
+	}
 	db := database.GetDB()
 
 	result := db.Model(model.InboundClientIps{}).
@@ -2113,6 +3272,20 @@ func (s *InboundService) ClearClientIps(clientEmail string) error {
 }
 
 func (s *InboundService) SearchInbounds(query string) ([]*model.Inbound, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		allInbounds, err := provider.GetAllInboundsWithClientStats()
+		if err != nil {
+			return nil, err
+		}
+		var result []*model.Inbound
+		for _, inbound := range allInbounds {
+			if strings.Contains(strings.ToLower(inbound.Remark), strings.ToLower(query)) {
+				result = append(result, inbound)
+			}
+		}
+		return result, nil
+	}
 	db := database.GetDB()
 	var inbounds []*model.Inbound
 	err := db.Model(model.Inbound{}).Preload("ClientStats").Where("remark like ?", "%"+query+"%").Find(&inbounds).Error
@@ -2123,6 +3296,9 @@ func (s *InboundService) SearchInbounds(query string) ([]*model.Inbound, error) 
 }
 
 func (s *InboundService) MigrationRequirements() {
+	if config.GetDBType() == "mongodb" {
+		return
+	}
 	db := database.GetDB()
 	tx := db.Begin()
 	var err error
@@ -2291,6 +3467,22 @@ func (s *InboundService) GetOnlineClients() []string {
 }
 
 func (s *InboundService) GetClientsLastOnline() (map[string]int64, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		emails, err := provider.GetInboundEmails()
+		if err != nil {
+			return nil, err
+		}
+		traffics, err := provider.GetClientTrafficsByEmails(emails)
+		if err != nil {
+			return nil, err
+		}
+		result := make(map[string]int64, len(traffics))
+		for _, t := range traffics {
+			result[t.Email] = t.LastOnline
+		}
+		return result, nil
+	}
 	db := database.GetDB()
 	var rows []xray.ClientTraffic
 	err := db.Model(&xray.ClientTraffic{}).Select("email, last_online").Find(&rows).Error
@@ -2305,6 +3497,29 @@ func (s *InboundService) GetClientsLastOnline() (map[string]int64, error) {
 }
 
 func (s *InboundService) FilterAndSortClientEmails(emails []string) ([]string, []string, error) {
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		clients, err := provider.GetClientTrafficsByEmails(emails)
+		if err != nil {
+			return nil, nil, err
+		}
+		sort.Slice(clients, func(i, j int) bool {
+			return (clients[i].Up + clients[i].Down) > (clients[j].Up + clients[j].Down)
+		})
+		validEmails := make([]string, 0, len(clients))
+		found := make(map[string]bool)
+		for _, client := range clients {
+			validEmails = append(validEmails, client.Email)
+			found[client.Email] = true
+		}
+		extraEmails := make([]string, 0)
+		for _, email := range emails {
+			if !found[email] {
+				extraEmails = append(extraEmails, email)
+			}
+		}
+		return validEmails, extraEmails, nil
+	}
 	db := database.GetDB()
 
 	// Step 1: Get ClientTraffic records for emails in the input list
