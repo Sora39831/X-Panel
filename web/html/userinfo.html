@@ -65,13 +65,13 @@
                 [[ item.protocol ]]
               </a-descriptions-item>
               <a-descriptions-item label='{{ i18n "pages.userinfo.upload" }}'>
-                [[ humanReadableSize(item.up) ]]
+                [[ SizeFormatter.sizeFormat(item.up) ]]
               </a-descriptions-item>
               <a-descriptions-item label='{{ i18n "pages.userinfo.download" }}'>
-                [[ humanReadableSize(item.down) ]]
+                [[ SizeFormatter.sizeFormat(item.down) ]]
               </a-descriptions-item>
               <a-descriptions-item label='{{ i18n "pages.userinfo.total" }}'>
-                [[ item.total > 0 ? humanReadableSize(item.total) : '{{ i18n "pages.userinfo.unlimited" }}' ]]
+                [[ item.total > 0 ? SizeFormatter.sizeFormat(item.total) : '{{ i18n "pages.userinfo.unlimited" }}' ]]
               </a-descriptions-item>
               <a-descriptions-item label='{{ i18n "pages.userinfo.expiryTime" }}'>
                 [[ item.expiryTime > 0 ? new Date(item.expiryTime).toLocaleDateString() : '{{ i18n "pages.userinfo.permanent" }}' ]]
@@ -113,14 +113,10 @@
         const msg = await HttpUtil.get('/panel/api/user/info');
         if (msg.success) {
           this.inbounds = msg.obj || [];
+        } else {
+          this.$message.error(msg.msg || 'Failed to load user info');
         }
         this.loading = false;
-      },
-      humanReadableSize(bytes) {
-        if (bytes === 0) return '0 B';
-        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(1024));
-        return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i];
       }
     }
   });

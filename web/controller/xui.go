@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"x-ui/logger"
 	"x-ui/web/service"
 	"x-ui/web/session"
 
@@ -102,7 +103,10 @@ func (a *XUIController) userInfoAPI(c *gin.Context) {
 
 	var userInbounds []UserInboundInfo
 
-	traffic, _ := inboundService.GetClientTrafficByEmail(user.Username)
+	traffic, err := inboundService.GetClientTrafficByEmail(user.Username)
+	if err != nil {
+		logger.Warningf("failed to get traffic for user %s: %v", user.Username, err)
+	}
 
 	for _, inbound := range inbounds {
 		var settings map[string]any
