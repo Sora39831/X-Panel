@@ -87,7 +87,7 @@
 
 [pages.login]
 "hello" = "你好"
-"XPanelSystem" = "管理系统"
+"XPanelSystem" = "售后处理系统"
 "title" = "欢迎使用"
 "loginAgain" = "登录时效已过，请重新登录"
 
