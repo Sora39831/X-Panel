@@ -448,7 +448,7 @@
 {{ template "page/head_end" .}}
 
 {{ template "page/body_start" .}}
-<script src="https://challenges.cloudflare.com/turnstile/v0.js?render=explicit" async defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
   <transition name="list" appear>
     <a-layout-content class="under" :style="{ minHeight: '0' }">
