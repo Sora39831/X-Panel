@@ -448,6 +448,7 @@
 {{ template "page/head_end" .}}
 
 {{ template "page/body_start" .}}
+<script src="https://challenges.cloudflare.com/turnstile/v0.js?render=explicit" async defer></script>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
   <transition name="list" appear>
     <a-layout-content class="under" :style="{ minHeight: '0' }">
@@ -513,7 +514,7 @@
             </a-row>
             <a-row type="flex" justify="center">
               <a-col span="24">
-                <a-tabs :active-key="activeTab" @change="activeTab = $event" :animated="false">
+                <a-tabs :active-key="activeTab" @change="onTabChange" :animated="false">
                   <a-tab-pane key="login" tab='{{ i18n "login" }}'>
                     <a-form @submit.prevent="login">
                       <a-space direction="vertical" size="middle">
@@ -572,10 +573,7 @@
                           </a-input-password>
                         </a-form-item>
                         <a-form-item>
-                          <a-input name="regCaptcha" v-model.trim="registerUser.captcha"
-                            placeholder='{{ i18n "pages.register.captcha" }}: [[ captchaQuestion ]]' required>
-                            <a-icon slot="prefix" type="safety-certificate" :style="{ fontSize: '1rem' }"></a-icon>
-                          </a-input>
+                          <div id="turnstile-widget"></div>
                         </a-form-item>
                         <a-form-item>
                           <a-row justify="center" class="centered">
@@ -624,16 +622,14 @@
       registerUser: {
         email: "",
         password: "",
-        confirmPassword: "",
-        captcha: "",
-        captchaAnswer: ""
+        confirmPassword: ""
       },
-      captchaQuestion: ""
+      turnstileToken: "",
+      turnstileRendered: false
     },
     async mounted() {
       this.lang = LanguageManager.getLanguage();
       this.twoFactorEnable = await this.getTwoFactorEnable();
-      this.generateCaptcha();
     },
     methods: {
       async login() {
@@ -657,28 +653,49 @@
           return msg.obj;
         }
       },
-      generateCaptcha() {
-        const a = Math.floor(Math.random() * 10) + 1;
-        const b = Math.floor(Math.random() * 10) + 1;
-        this.captchaQuestion = a + " + " + b + " = ?";
-        this.registerUser.captchaAnswer = (a + b).toString();
+      onTabChange(key) {
+        this.activeTab = key;
+        if (key === 'register' && !this.turnstileRendered) {
+          this.$nextTick(() => {
+            this.renderTurnstile();
+          });
+        }
+      },
+      renderTurnstile() {
+        if (this.turnstileRendered) return;
+        if (typeof turnstile === 'undefined') {
+          this._turnstileRetries = (this._turnstileRetries || 0) + 1;
+          if (this._turnstileRetries > 50) {
+            this.$message.error('Captcha failed to load. Please refresh the page.');
+            return;
+          }
+          setTimeout(() => this.renderTurnstile(), 200);
+          return;
+        }
+        try {
+          turnstile.render('#turnstile-widget', {
+            sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
+            callback: (token) => { this.turnstileToken = token; }
+          });
+          this.turnstileRendered = true;
+        } catch (e) {
+          this.$message.error('Captcha failed to load. Please refresh the page.');
+        }
       },
       async register() {
         if (this.registerUser.password !== this.registerUser.confirmPassword) {
           this.$message.error('{{ i18n "pages.register.toasts.passwordMismatch" }}');
           return;
         }
-        if (this.registerUser.captcha !== this.registerUser.captchaAnswer) {
+        if (!this.turnstileToken) {
           this.$message.error('{{ i18n "pages.register.toasts.wrongCaptcha" }}');
-          this.generateCaptcha();
           return;
         }
         this.loadingStates.spinning = true;
         const msg = await HttpUtil.post('/register', {
           email: this.registerUser.email,
           password: this.registerUser.password,
-          captcha: this.registerUser.captcha,
-          captchaAnswer: this.registerUser.captchaAnswer
+          turnstileToken: this.turnstileToken
         });
         if (msg.success) {
           this.$message.success(msg.msg);
@@ -686,6 +703,8 @@
           this.user.username = this.registerUser.email;
         }
         this.loadingStates.spinning = false;
+        turnstile.reset();
+        this.turnstileToken = "";
       },
     },
   });
