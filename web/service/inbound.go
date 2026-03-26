@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -1306,13 +1307,18 @@ func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool,
 		notDepleted := true
 		err = db.Model(xray.ClientTraffic{}).Select("enable").Where("email = ?", email).First(&notDepleted).Error
 		if err != nil {
-			logger.Error("Get stats error")
-			return false, err
-		}
-		err = s.DelClientStat(db, email)
-		if err != nil {
-			logger.Error("Delete stats Data Error")
-			return false, err
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				logger.Debugf("ClientTraffic not found for email %s, skipping traffic cleanup", email)
+			} else {
+				logger.Error("Get stats error")
+				return false, err
+			}
+		} else {
+			err = s.DelClientStat(db, email)
+			if err != nil {
+				logger.Error("Delete stats Data Error")
+				return false, err
+			}
 		}
 		// 删除对应的 User 记录，防止已删除的客户仍能登录
 		if delErr := db.Where("username = ?", email).Delete(model.User{}).Error; delErr != nil {
