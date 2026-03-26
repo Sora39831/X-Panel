@@ -2060,6 +2060,12 @@ install_mongodb() {
     case "$os_choice" in
     1)
         # Debian/Ubuntu - 按照 MongoDB 8.2 官方文档安装
+        # 步骤 1: 安装必要工具并导入 GPG 公钥
+        apt-get install -y gnupg curl
+        curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+            gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+
+        # 步骤 2: 创建列表文件
         VERSION_CODENAME=$(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release 2>/dev/null || echo "bookworm")
         # 判断是 Debian 还是 Ubuntu
         if grep -qi 'ID=debian' /etc/os-release && ! grep -qi 'ID_LIKE.*ubuntu' /etc/os-release; then
@@ -2081,13 +2087,18 @@ install_mongodb() {
                 echo -e "${yellow}检测到 Ubuntu $VERSION_CODENAME，使用 Noble 仓库源${plain}"
             fi
         fi
-        # 导入 MongoDB 8.0 GPG 公钥 (MongoDB 8.2 使用 8.0 签名密钥)
-        curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg 2>/dev/null
-        # 添加 MongoDB 8.2 仓库
-        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/${MONGO_DISTRO} ${MONGO_CODENAME}/mongodb-org/8.2 multiverse" > /etc/apt/sources.list.d/mongodb-org-8.2.list
-        apt update && apt install -y mongodb-org
-        systemctl enable mongod
+        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/${MONGO_DISTRO} ${MONGO_CODENAME}/mongodb-org/8.2 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-8.2.list
+
+        # 步骤 3: 重新加载包数据库
+        apt-get update
+
+        # 步骤 4: 安装 MongoDB Community Server
+        apt-get install -y mongodb-org
+
+        # 步骤 5: 启动 MongoDB
+        systemctl daemon-reload
         systemctl start mongod
+        systemctl enable mongod
         ;;
     2)
         # CentOS/RHEL/Rocky/Alma
@@ -2100,8 +2111,9 @@ enabled=1
 gpgkey=https://www.mongodb.org/static/pgp/server-8.0.asc
 REPO
         yum install -y mongodb-org
-        systemctl enable mongod
+        systemctl daemon-reload
         systemctl start mongod
+        systemctl enable mongod
         ;;
     3)
         return
