@@ -446,7 +446,7 @@
   }
 </style>
 {{ template "page/head_end" .}}
-<script src="https://challenges.cloudflare.com/turnstile/v0.js" async defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0.js?render=explicit" async defer></script>
 
 {{ template "page/body_start" .}}
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
@@ -514,7 +514,7 @@
             </a-row>
             <a-row type="flex" justify="center">
               <a-col span="24">
-                <a-tabs :active-key="activeTab" @change="activeTab = $event" :animated="false">
+                <a-tabs :active-key="activeTab" @change="onTabChange" :animated="false">
                   <a-tab-pane key="login" tab='{{ i18n "login" }}'>
                     <a-form @submit.prevent="login">
                       <a-space direction="vertical" size="middle">
@@ -624,17 +624,12 @@
         password: "",
         confirmPassword: ""
       },
-      turnstileToken: ""
+      turnstileToken: "",
+      turnstileRendered: false
     },
     async mounted() {
       this.lang = LanguageManager.getLanguage();
       this.twoFactorEnable = await this.getTwoFactorEnable();
-      this.$nextTick(() => {
-        turnstile.render('#turnstile-widget', {
-          sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
-          callback: (token) => { this.turnstileToken = token; }
-        });
-      });
     },
     methods: {
       async login() {
@@ -656,6 +651,18 @@
           this.loadingStates.fetched = true;
 
           return msg.obj;
+        }
+      },
+      onTabChange(key) {
+        this.activeTab = key;
+        if (key === 'register' && !this.turnstileRendered) {
+          this.$nextTick(() => {
+            turnstile.render('#turnstile-widget', {
+              sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
+              callback: (token) => { this.turnstileToken = token; }
+            });
+            this.turnstileRendered = true;
+          });
         }
       },
       async register() {
