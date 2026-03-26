@@ -2051,7 +2051,7 @@ show_usage() {
 }
 
 install_mongodb() {
-    echo -e "${green}安装 MongoDB 数据库${plain}"
+    echo -e "${green}安装 MongoDB 8.2 数据库${plain}"
     echo -e "${green}\t1.${plain} Debian/Ubuntu"
     echo -e "${green}\t2.${plain} CentOS/RHEL/Rocky/Alma"
     echo -e "${green}\t3.${plain} 退出"
@@ -2059,34 +2059,45 @@ install_mongodb() {
 
     case "$os_choice" in
     1)
-        # Debian/Ubuntu
+        # Debian/Ubuntu - 按照 MongoDB 8.2 官方文档安装
         VERSION_CODENAME=$(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release 2>/dev/null || echo "bookworm")
         # 判断是 Debian 还是 Ubuntu
         if grep -qi 'ID=debian' /etc/os-release && ! grep -qi 'ID_LIKE.*ubuntu' /etc/os-release; then
             MONGO_DISTRO="debian"
+            # MongoDB 8.2 支持 bookworm, bullseye, trixie
+            if [ "$VERSION_CODENAME" = "bullseye" ] || [ "$VERSION_CODENAME" = "bookworm" ] || [ "$VERSION_CODENAME" = "trixie" ]; then
+                MONGO_CODENAME="bookworm"
+            else
+                MONGO_CODENAME="bookworm"
+                echo -e "${yellow}检测到 Debian $VERSION_CODENAME，使用 Bookworm 仓库源${plain}"
+            fi
         else
             MONGO_DISTRO="ubuntu"
+            # MongoDB 8.2 支持 noble (24.04), jammy (22.04), focal (20.04)
+            if [ "$VERSION_CODENAME" = "noble" ] || [ "$VERSION_CODENAME" = "jammy" ] || [ "$VERSION_CODENAME" = "focal" ]; then
+                MONGO_CODENAME="$VERSION_CODENAME"
+            else
+                MONGO_CODENAME="noble"
+                echo -e "${yellow}检测到 Ubuntu $VERSION_CODENAME，使用 Noble 仓库源${plain}"
+            fi
         fi
-        # MongoDB 7.0 不支持 noble (Ubuntu 24.04)，fallback 到 jammy
-        if [ "$VERSION_CODENAME" = "noble" ]; then
-            VERSION_CODENAME="jammy"
-            echo -e "${yellow}检测到 Ubuntu Noble，使用 Jammy 仓库源${plain}"
-        fi
-        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null
-        echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/${MONGO_DISTRO} ${VERSION_CODENAME}/mongodb-org/7.0 main" > /etc/apt/sources.list.d/mongodb-org-7.0.list
+        # 导入 MongoDB 8.0 GPG 公钥 (MongoDB 8.2 使用 8.0 签名密钥)
+        curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg 2>/dev/null
+        # 添加 MongoDB 8.2 仓库
+        echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/${MONGO_DISTRO} ${MONGO_CODENAME}/mongodb-org/8.2 multiverse" > /etc/apt/sources.list.d/mongodb-org-8.2.list
         apt update && apt install -y mongodb-org
         systemctl enable mongod
         systemctl start mongod
         ;;
     2)
         # CentOS/RHEL/Rocky/Alma
-        cat > /etc/yum.repos.d/mongodb-org-7.0.repo << 'REPO'
-[mongodb-org-7.0]
+        cat > /etc/yum.repos.d/mongodb-org-8.2.repo << 'REPO'
+[mongodb-org-8.2]
 name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/7.0/x86_64/
+baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/8.2/x86_64/
 gpgcheck=1
 enabled=1
-gpgkey=https://www.mongodb.org/static/pgp/server-7.0.asc
+gpgkey=https://www.mongodb.org/static/pgp/server-8.0.asc
 REPO
         yum install -y mongodb-org
         systemctl enable mongod
