@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"strings"
 
 	"x-ui/logger"
 	"x-ui/web/locale"
@@ -20,9 +21,42 @@ func (a *BaseController) checkLogin(c *gin.Context) {
 			c.Redirect(http.StatusTemporaryRedirect, c.GetString("base_path"))
 		}
 		c.Abort()
-	} else {
-		c.Next()
+		return
 	}
+
+	// 角色路由过滤
+	user := session.GetLoginUser(c)
+	if user != nil && user.Role == "user" {
+		path := c.Request.URL.Path
+		basePath := c.GetString("base_path")
+		relativePath := strings.TrimPrefix(path, basePath)
+
+		allowedPaths := []string{
+			"panel/userinfo",
+			"panel/api/user/info",
+			"logout",
+		}
+
+		allowed := false
+		for _, ap := range allowedPaths {
+			if relativePath == ap || strings.HasPrefix(relativePath, ap) {
+				allowed = true
+				break
+			}
+		}
+
+		if !allowed {
+			if isAjax(c) {
+				pureJsonMsg(c, http.StatusForbidden, false, I18nWeb(c, "pages.login.loginAgain"))
+			} else {
+				c.Redirect(http.StatusTemporaryRedirect, basePath+"panel/userinfo")
+			}
+			c.Abort()
+			return
+		}
+	}
+
+	c.Next()
 }
 
 func I18nWeb(c *gin.Context, name string, params ...string) string {
