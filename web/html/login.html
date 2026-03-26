@@ -446,9 +446,9 @@
   }
 </style>
 {{ template "page/head_end" .}}
-<script src="https://challenges.cloudflare.com/turnstile/v0.js?render=explicit" async defer></script>
 
 {{ template "page/body_start" .}}
+<script src="https://challenges.cloudflare.com/turnstile/v0.js?render=explicit" async defer></script>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
   <transition name="list" appear>
     <a-layout-content class="under" :style="{ minHeight: '0' }">
@@ -657,13 +657,21 @@
         this.activeTab = key;
         if (key === 'register' && !this.turnstileRendered) {
           this.$nextTick(() => {
-            turnstile.render('#turnstile-widget', {
-              sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
-              callback: (token) => { this.turnstileToken = token; }
-            });
-            this.turnstileRendered = true;
+            this.renderTurnstile();
           });
         }
+      },
+      renderTurnstile() {
+        if (typeof turnstile === 'undefined') {
+          setTimeout(() => this.renderTurnstile(), 200);
+          return;
+        }
+        if (this.turnstileRendered) return;
+        turnstile.render('#turnstile-widget', {
+          sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
+          callback: (token) => { this.turnstileToken = token; }
+        });
+        this.turnstileRendered = true;
       },
       async register() {
         if (this.registerUser.password !== this.registerUser.confirmPassword) {
