@@ -446,6 +446,7 @@
   }
 </style>
 {{ template "page/head_end" .}}
+<script src="https://challenges.cloudflare.com/turnstile/v0.js" async defer></script>
 
 {{ template "page/body_start" .}}
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
@@ -572,10 +573,7 @@
                           </a-input-password>
                         </a-form-item>
                         <a-form-item>
-                          <a-input name="regCaptcha" v-model.trim="registerUser.captcha"
-                            placeholder='{{ i18n "pages.register.captcha" }}: [[ captchaQuestion ]]' required>
-                            <a-icon slot="prefix" type="safety-certificate" :style="{ fontSize: '1rem' }"></a-icon>
-                          </a-input>
+                          <div id="turnstile-widget"></div>
                         </a-form-item>
                         <a-form-item>
                           <a-row justify="center" class="centered">
@@ -624,16 +622,19 @@
       registerUser: {
         email: "",
         password: "",
-        confirmPassword: "",
-        captcha: "",
-        captchaAnswer: ""
+        confirmPassword: ""
       },
-      captchaQuestion: ""
+      turnstileToken: ""
     },
     async mounted() {
       this.lang = LanguageManager.getLanguage();
       this.twoFactorEnable = await this.getTwoFactorEnable();
-      this.generateCaptcha();
+      this.$nextTick(() => {
+        turnstile.render('#turnstile-widget', {
+          sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
+          callback: (token) => { this.turnstileToken = token; }
+        });
+      });
     },
     methods: {
       async login() {
@@ -657,34 +658,28 @@
           return msg.obj;
         }
       },
-      generateCaptcha() {
-        const a = Math.floor(Math.random() * 10) + 1;
-        const b = Math.floor(Math.random() * 10) + 1;
-        this.captchaQuestion = a + " + " + b + " = ?";
-        this.registerUser.captchaAnswer = (a + b).toString();
-      },
       async register() {
         if (this.registerUser.password !== this.registerUser.confirmPassword) {
           this.$message.error('{{ i18n "pages.register.toasts.passwordMismatch" }}');
           return;
         }
-        if (this.registerUser.captcha !== this.registerUser.captchaAnswer) {
+        if (!this.turnstileToken) {
           this.$message.error('{{ i18n "pages.register.toasts.wrongCaptcha" }}');
-          this.generateCaptcha();
           return;
         }
         this.loadingStates.spinning = true;
         const msg = await HttpUtil.post('/register', {
           email: this.registerUser.email,
           password: this.registerUser.password,
-          captcha: this.registerUser.captcha,
-          captchaAnswer: this.registerUser.captchaAnswer
+          turnstileToken: this.turnstileToken
         });
         if (msg.success) {
           this.$message.success(msg.msg);
           this.activeTab = "login";
           this.user.username = this.registerUser.email;
         }
+        turnstile.reset();
+        this.turnstileToken = "";
         this.loadingStates.spinning = false;
       },
     },

@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -25,10 +27,36 @@ type LoginForm struct {
 }
 
 type RegisterForm struct {
-	Email         string `json:"email" form:"email"`
-	Password      string `json:"password" form:"password"`
-	Captcha       string `json:"captcha" form:"captcha"`
-	CaptchaAnswer string `json:"captchaAnswer" form:"captchaAnswer"`
+	Email          string `json:"email" form:"email"`
+	Password       string `json:"password" form:"password"`
+	TurnstileToken string `json:"turnstileToken" form:"turnstileToken"`
+}
+
+const turnstileSecretKey = "0x4AAAAAACwR0BwMTZCdnEg_0NWHEBa6RwE"
+
+func verifyTurnstile(token string, remoteIP string) bool {
+	if token == "" {
+		return false
+	}
+	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
+		"secret":   {turnstileSecretKey},
+		"response": {token},
+		"remoteip": {remoteIP},
+	})
+	if err != nil {
+		logger.Warningf("Turnstile verification request failed: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		logger.Warningf("Failed to decode Turnstile response: %v", err)
+		return false
+	}
+	return result.Success
 }
 
 type IndexController struct {
@@ -218,8 +246,8 @@ func (a *IndexController) register(c *gin.Context) {
 		return
 	}
 
-	// 服务端验证码校验
-	if form.Captcha == "" || form.CaptchaAnswer == "" || form.Captcha != form.CaptchaAnswer {
+	// Cloudflare Turnstile 验证
+	if !verifyTurnstile(form.TurnstileToken, clientIP) {
 		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.register.toasts.wrongCaptcha"))
 		return
 	}
