@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"regexp"
+	"strings"
 	"sync"
 	"text/template"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 )
+
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9_.@]+$`)
 
 type LoginForm struct {
 	Username    	string `json:"username" form:"username"`
@@ -63,7 +66,7 @@ func checkRegisterRateLimit(ip string) bool {
 	registerRateLimiter.records[ip] = append(valid, now)
 
 	// 定期清理长时间未使用的 IP 记录
-	if len(registerRateLimiter.records) > 1000 {
+	if len(registerRateLimiter.records) > 100 {
 		for k, v := range registerRateLimiter.records {
 			if len(v) == 0 || v[len(v)-1].Before(windowStart) {
 				delete(registerRateLimiter.records, k)
@@ -186,8 +189,7 @@ func (a *IndexController) register(c *gin.Context) {
 		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.register.toasts.emailLengthError"))
 		return
 	}
-	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9_.@]+$`)
-	if !emailRegex.MatchString(form.Email) {
+	if !emailRegex.MatchString(form.Email) || strings.Count(form.Email, "@") > 1 {
 		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.register.toasts.invalidEmail"))
 		return
 	}
@@ -226,7 +228,11 @@ func (a *IndexController) register(c *gin.Context) {
 	err := a.userService.Register(form.Email, form.Password)
 	if err != nil {
 		logger.Warningf("Registration failed for email %s: %v", form.Email, err)
-		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.register.toasts.registerFailed"))
+		if strings.Contains(err.Error(), "already exists") {
+			pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.register.toasts.emailAlreadyExists"))
+		} else {
+			pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.register.toasts.registerFailed"))
+		}
 		return
 	}
 
