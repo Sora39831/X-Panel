@@ -183,7 +183,10 @@ func (s *UserService) CheckEmailExists(email string) (bool, error) {
 
 	// 检查 ClientTraffic 表
 	inboundService := InboundService{}
-	traffic, _ := inboundService.GetClientTrafficByEmail(email)
+	traffic, err := inboundService.GetClientTrafficByEmail(email)
+	if err != nil {
+		return false, err
+	}
 	if traffic != nil {
 		return true, nil
 	}
@@ -254,9 +257,9 @@ func (s *UserService) Register(email string, password string) error {
 
 		// 根据协议设置不同的字段
 		switch inbound.Protocol {
-		case "trojan":
+		case model.Trojan:
 			newClient["password"] = clientID
-		case "shadowsocks":
+		case model.Shadowsocks:
 			newClient["password"] = clientID
 		default:
 			// vless/vmess 使用 id 字段
@@ -267,7 +270,7 @@ func (s *UserService) Register(email string, password string) error {
 		settings["clients"] = clientsSlice
 
 		// 序列化回 JSON
-		newSettings, err := json.MarshalIndent(settings, "", "  ")
+		newSettings, err := json.Marshal(settings)
 		if err != nil {
 			logger.Warning("Failed to marshal inbound settings:", err)
 			continue
@@ -305,11 +308,11 @@ func (s *UserService) Register(email string, password string) error {
 
 	if config.GetDBType() == "mongodb" {
 		if err := database.GetProvider().CreateClientTraffic(&clientTraffic); err != nil {
-			logger.Warning("Failed to create client traffic:", err)
+			return err
 		}
 	} else {
 		if err := database.GetDB().Create(&clientTraffic).Error; err != nil {
-			logger.Warning("Failed to create client traffic:", err)
+			return err
 		}
 	}
 
