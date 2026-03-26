@@ -1,145 +1,145 @@
-# User Registration Feature Design
+# 用户注册功能设计文档
 
-## Overview
+## 概述
 
-Add a registration feature to X-Panel that allows users to self-register via the login page. Registration automatically creates proxy clients across all inbounds, simulating the manual "add client" workflow. Registered users can log in to view their own traffic and expiry information.
+在 X-Panel 的登录页增加注册功能，允许用户自行注册。注册过程自动在所有 inbound 中创建代理客户端，模拟管理员手动添加客户端的流程。注册用户可以登录面板查看自己的流量和到期信息。
 
-## Core Concept
+## 核心概念
 
-- **Registration = auto-creating proxy clients**: When a user registers, the system generates a UUID-based client ID, creates a `Client` object in every inbound's `Settings.clients` array, and creates corresponding `ClientTraffic` records.
-- **Single identity**: The user's email serves as both the panel login username and the proxy client email identifier across all inbounds.
-- **Role-based access**: `User` model gains a `Role` field (`"admin"` / `"user"`). Admins retain full panel access; regular users see only their own traffic info.
+- **注册 = 自动创建代理客户端**：用户注册时，系统基于 xray 的 UUID 生成机制创建客户端 ID，在每个 inbound 的 `Settings.clients` 数组中创建 `Client` 对象，同时在 `ClientTraffic` 表创建对应的流量记录。
+- **统一身份标识**：用户的 email 同时作为面板登录用户名和代理客户端的 email 标识，在所有 inbound 中保持一致。
+- **基于角色的访问控制**：`User` 模型新增 `Role` 字段（`"admin"` / `"user"`）。管理员保留完整面板权限；普通用户只能查看自己的流量信息。
 
-## Data Model Changes
+## 数据模型变更
 
-### User Model (`database/model/model.go`)
+### User 模型 (`database/model/model.go`)
 
-Add one field:
+新增一个字段：
 
 ```go
 type User struct {
     Id       int    `json:"id" gorm:"primaryKey;autoIncrement" bson:"_id,omitempty"`
     Username string `json:"username" bson:"username"`
     Password string `json:"password" bson:"password"`
-    Role     string `json:"role" bson:"role"` // "admin" or "user"
+    Role     string `json:"role" bson:"role"` // "admin" 或 "user"
 }
 ```
 
-- Default admin user: `Role = "admin"`
-- Registered users: `Role = "user"`
-- Migration: existing users without Role get `"admin"` automatically
+- 默认管理员用户：`Role = "admin"`
+- 注册用户：`Role = "user"`
+- 数据迁移：已有的用户自动填充 `Role = "admin"`
 
-### No new tables
+### 无需新建表
 
-All data fits in existing tables: `users`, `inbounds` (Settings JSON), `client_traffics`.
+所有数据存储在已有表中：`users`、`inbounds`（Settings JSON）、`client_traffics`。
 
-## Registration Flow
+## 注册流程
 
-1. User visits login page, clicks "Register" tab
-2. Enters email (serves as username) and password (panel login only)
-3. Frontend validates input, sends POST to `/register`
-4. Backend:
-   - Validate email format, length (4-64 chars), allowed characters: letters, digits, `_`, `@`, `.`
-   - Validate password: min 6 chars, must contain letter + digit
-   - Check `User.Username` uniqueness
-   - Check `ClientTraffic.Email` uniqueness (no existing client with same email)
-   - Generate UUID via xray's UUID generation for client ID
-   - For each existing inbound:
-     - Parse `Inbound.Settings` JSON
-     - Append new `Client` object to `clients` array (`email=用户名, TotalGB=0, ExpiryTime=0, Enable=true`)
-     - Save updated inbound
-     - Create `ClientTraffic` record (`Email=用户名, Up=0, Down=0, Total=0, ExpiryTime=0, Enable=true`)
-   - Create `User` record with `Role="user"`, bcrypt-hashed password
-5. Return success, frontend redirects to login page
+1. 用户访问登录页，点击"注册"选项卡
+2. 输入 email（作为用户名）和密码（仅用于面板登录）
+3. 前端校验输入，发送 POST 请求到 `/register`
+4. 后端处理：
+   - 校验 email 格式、长度（4-64 字符）、允许字符：字母、数字、`_`、`@`、`.`
+   - 校验密码：最少 6 位，必须包含字母和数字
+   - 检查 `User.Username` 是否已存在
+   - 检查 `ClientTraffic.Email` 是否已存在（不允许重复的 email）
+   - 使用 xray 的 UUID 生成机制创建客户端 ID
+   - 遍历所有已有的 inbound：
+     - 解析 `Inbound.Settings` JSON
+     - 在 `clients` 数组中追加新的 `Client` 对象（`email=用户名, TotalGB=0, ExpiryTime=0, Enable=true`）
+     - 保存更新后的 inbound
+     - 创建 `ClientTraffic` 记录（`Email=用户名, Up=0, Down=0, Total=0, ExpiryTime=0, Enable=true`）
+   - 创建 `User` 记录，`Role="user"`，密码使用 bcrypt 加密
+5. 返回成功，前端跳转到登录页
 
-## Security
+## 安全设计
 
-### Registration endpoint
+### 注册接口防护
 
-| Threat | Mitigation |
-|--------|-----------|
-| Brute-force registration | IP rate limit: max 5 requests/min per IP |
-| SQL/NoSQL injection | Parameterized queries, input sanitization |
-| Weak passwords | Min 6 chars, must contain letter + digit |
-| Duplicate registration | Check both `User.Username` and `ClientTraffic.Email` |
-| XSS / path traversal | Restrict email to `[a-zA-Z0-9_@.]`, length 4-64 |
-| CAPTCHA bypass | Simple math CAPTCHA generated server-side, validated on submit |
+| 威胁 | 防护措施 |
+|------|----------|
+| 暴力注册/爆破 | IP 限流：同一 IP 每分钟最多 5 次注册请求 |
+| SQL/NoSQL 注入 | 参数化查询，输入消毒 |
+| 弱密码 | 最少 6 位，必须包含字母和数字 |
+| 重复注册 | 同时检查 `User.Username` 和 `ClientTraffic.Email` |
+| XSS / 路径遍历 | 限制 email 为 `[a-zA-Z0-9_@.]`，长度 4-64 字符 |
+| 验证码绕过 | 服务端生成简单算术验证码，提交时校验 |
 
-### Login endpoint (existing, hardened)
+### 登录接口加固
 
-| Threat | Mitigation |
-|--------|-----------|
-| Brute-force login | IP lockout: 5 consecutive failures → 15 min block |
-| User enumeration | Unified error message: "username or password incorrect" |
+| 威胁 | 防护措施 |
+|------|----------|
+| 暴力破解 | IP 锁定：连续 5 次失败后锁定 15 分钟 |
+| 用户枚举 | 统一返回"用户名或密码错误"，不区分用户是否存在 |
 
-### Session / access control
+### 会话 / 访问控制
 
-- Session stores `Role` alongside user object
-- `checkLogin` middleware enforces role-based routing:
-  - Admin → full panel access
-  - User → only `/panel/userinfo` and `/panel/api/user/info`
-- All admin APIs reject requests from `role="user"`
+- 会话中存储 `Role`，与用户对象一起序列化
+- `checkLogin` 中间件基于角色进行路由过滤：
+  - 管理员 → 完整面板访问权限
+  - 普通用户 → 仅允许访问 `/panel/userinfo` 和 `/panel/api/user/info`
+- 所有管理 API 拒绝 `role="user"` 的请求
 
-## Frontend Changes
+## 前端变更
 
 ### login.html
 
-- Add "Register" tab alongside existing login form
-- Register form fields: email, password, confirm password, CAPTCHA
-- Form validation: email format, password match, password strength
-- On success: show message, auto-switch to login tab
+- 在现有登录表单旁增加"注册"选项卡
+- 注册表单字段：email、密码、确认密码、验证码
+- 表单校验：email 格式、密码匹配、密码强度
+- 注册成功后：显示提示信息，自动切换到登录选项卡
 
-### userinfo.html (new page)
+### userinfo.html（新建页面）
 
-- Simple card-based layout, no sidebar navigation
-- Displays:
-  - Email (username)
-  - For each inbound containing this client:
-    - Inbound remark + protocol
-    - Upload / Download (human-readable bytes)
-    - Total traffic limit (0 = unlimited)
-    - Expiry time (0 = never)
-    - Enable status
+- 简洁的卡片式布局，无侧边栏导航
+- 显示内容：
+  - Email（用户名）
+  - 遍历包含该客户端的所有 inbound：
+    - Inbound 备注 + 协议类型
+    - 上传 / 下载流量（人性化字节显示）
+    - 总流量限制（0 = 不限）
+    - 到期时间（0 = 永久）
+    - 启用状态
 
-## Backend Changes
+## 后端变更
 
 ### database/model/model.go
 
-- Add `Role` field to `User` struct
+- User 结构体新增 `Role` 字段
 
 ### database/db.go
 
-- Migration: set `Role="admin"` for existing users where Role is empty
+- 数据迁移：为已有用户填充 `Role="admin"`
 
 ### web/service/user.go
 
-- `Register(email, password)` — full registration logic
-- `GetClientTrafficByEmail(email)` — returns all ClientTraffic records matching email
-- `CheckEmailExists(email)` — checks User + ClientTraffic tables
+- `Register(email, password)` — 完整注册逻辑
+- `GetClientTrafficByEmail(email)` — 返回匹配 email 的所有 ClientTraffic 记录
+- `CheckEmailExists(email)` — 检查 User 表和 ClientTraffic 表
 
 ### web/controller/index.go
 
-- New route: `POST /register`
-- Handler: validate input → rate limit check → CAPTCHA verify → call Register service
+- 新增路由：`POST /register`
+- 处理函数：校验输入 → 限流检查 → 验证码校验 → 调用注册服务
 
-### web/controller/xui.go (or new controller)
+### web/controller/xui.go（或新建 controller）
 
-- New route: `GET /panel/userinfo` — render userinfo.html (with role check)
-- New route: `GET /panel/api/user/info` — return current user's ClientTraffic data
+- 新增路由：`GET /panel/userinfo` — 渲染 userinfo.html（带角色检查）
+- 新增路由：`GET /panel/api/user/info` — 返回当前用户的 ClientTraffic 数据
 
 ### web/controller/base.go
 
-- `checkLogin` middleware: add role-based path filtering for `role="user"`
+- `checkLogin` 中间件：为 `role="user"` 增加基于路径的访问过滤
 
-## Files to Create/Modify
+## 需要创建/修改的文件
 
-| File | Action |
-|------|--------|
-| `database/model/model.go` | Modify: add Role to User |
-| `database/db.go` | Modify: migration for existing users |
-| `web/service/user.go` | Modify: add Register, GetClientTrafficByEmail |
-| `web/controller/index.go` | Modify: add /register route |
-| `web/controller/base.go` | Modify: role-based access control |
-| `web/controller/xui.go` | Modify: add userinfo route |
-| `web/html/login.html` | Modify: add register tab |
-| `web/html/userinfo.html` | Create: user info page |
+| 文件 | 操作 |
+|------|------|
+| `database/model/model.go` | 修改：User 结构体新增 Role 字段 |
+| `database/db.go` | 修改：为已有用户的数据迁移 |
+| `web/service/user.go` | 修改：新增 Register、GetClientTrafficByEmail 方法 |
+| `web/controller/index.go` | 修改：新增 /register 路由 |
+| `web/controller/base.go` | 修改：基于角色的访问控制 |
+| `web/controller/xui.go` | 修改：新增 userinfo 页面路由 |
+| `web/html/login.html` | 修改：新增注册选项卡 |
+| `web/html/userinfo.html` | 新建：用户信息页面 |
