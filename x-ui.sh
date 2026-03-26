@@ -2149,20 +2149,21 @@ config_db_switch() {
         ;;
     2)
         echo "XUI_DB_TYPE=mongodb" > "$db_type_conf"
-        # Also create default mongodb.conf if it doesn't exist
         local mongo_conf="/etc/x-ui/mongodb.conf"
-        if [ ! -f "$mongo_conf" ]; then
-            cat > "$mongo_conf" << 'CONF'
-MONGO_HOST=localhost
-MONGO_PORT=27017
+        read -p "请输入数据库 IP [默认: localhost]: " mongo_host
+        mongo_host=${mongo_host:-localhost}
+        read -p "请输入数据库端口 [默认: 27017]: " mongo_port
+        mongo_port=${mongo_port:-27017}
+        read -p "请输入数据库用户名 [留空则不使用]: " mongo_user
+        read -p "请输入数据库密码 [留空则不使用]: " mongo_pass
+        cat > "$mongo_conf" << CONF
+MONGO_HOST=${mongo_host}
+MONGO_PORT=${mongo_port}
 MONGO_DB=xui
-# MONGO_USER=
-# MONGO_PASS=
+MONGO_USER=${mongo_user}
+MONGO_PASS=${mongo_pass}
 CONF
-            echo -e "${green}已创建默认 MongoDB 配置: ${mongo_conf}${plain}"
-            echo -e "${green}请根据需要编辑配置文件后重启 x-ui${plain}"
-        fi
-        echo -e "${green}已切换到 MongoDB 数据库${plain}"
+        echo -e "${green}已切换到 MongoDB 数据库，配置已写入: ${mongo_conf}${plain}"
         echo -e "${green}重启 x-ui 以生效...${plain}"
         x-ui restart
         ;;
