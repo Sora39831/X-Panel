@@ -122,6 +122,19 @@
 
 [pages.userinfo]
 "title" = "用户信息"
+"remark" = "备注"
+"protocol" = "协议"
+"upload" = "上传"
+"download" = "下载"
+"total" = "总流量"
+"expiryTime" = "到期时间"
+"status" = "状态"
+"enabled" = "已启用"
+"disabled" = "已禁用"
+"unlimited" = "不限"
+"permanent" = "永久"
+"noData" = "暂无数据"
+"logout" = "退出登录"
 
 [pages.index]
 "title" = "系统状态"

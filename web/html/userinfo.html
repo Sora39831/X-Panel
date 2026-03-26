@@ -1,0 +1,128 @@
+{{ template "page/head_start" .}}
+<style>
+  html * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .centered {
+    display: flex;
+    text-align: center;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .under {
+    background-color: #c7ebe2;
+    z-index: 0;
+  }
+
+  .dark .under {
+    background-color: var(--dark-color-login-wave);
+  }
+
+  .traffic-card {
+    border-radius: 1rem;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .dark .traffic-card {
+    background-color: var(--dark-color-surface-100);
+  }
+
+  .status-enabled {
+    color: #52c41a;
+  }
+
+  .status-disabled {
+    color: #ff4d4f;
+  }
+</style>
+{{ template "page/head_end" .}}
+
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
+  <a-layout-content class="under">
+    <a-row type="flex" justify="center" align="middle" :style="{ minHeight: '100vh' }">
+      <a-col :xs="22" :sm="18" :md="14" :lg="10" :xl="8">
+        <div class="centered" :style="{ marginBottom: '2rem' }">
+          <h2>{{ i18n "pages.userinfo.title" }}</h2>
+        </div>
+        <template v-if="loading">
+          <div class="centered">
+            <a-spin size="large" />
+          </div>
+        </template>
+        <template v-else>
+          <a-card class="traffic-card" v-for="item in inbounds" :key="item.remark + item.protocol">
+            <a-descriptions :column="1" bordered size="small">
+              <a-descriptions-item label='{{ i18n "pages.userinfo.remark" }}'>
+                [[ item.remark || '-' ]]
+              </a-descriptions-item>
+              <a-descriptions-item label='{{ i18n "pages.userinfo.protocol" }}'>
+                [[ item.protocol ]]
+              </a-descriptions-item>
+              <a-descriptions-item label='{{ i18n "pages.userinfo.upload" }}'>
+                [[ humanReadableSize(item.up) ]]
+              </a-descriptions-item>
+              <a-descriptions-item label='{{ i18n "pages.userinfo.download" }}'>
+                [[ humanReadableSize(item.down) ]]
+              </a-descriptions-item>
+              <a-descriptions-item label='{{ i18n "pages.userinfo.total" }}'>
+                [[ item.total > 0 ? humanReadableSize(item.total) : '{{ i18n "pages.userinfo.unlimited" }}' ]]
+              </a-descriptions-item>
+              <a-descriptions-item label='{{ i18n "pages.userinfo.expiryTime" }}'>
+                [[ item.expiryTime > 0 ? new Date(item.expiryTime).toLocaleDateString() : '{{ i18n "pages.userinfo.permanent" }}' ]]
+              </a-descriptions-item>
+              <a-descriptions-item label='{{ i18n "pages.userinfo.status" }}'>
+                <span :class="item.enable ? 'status-enabled' : 'status-disabled'">
+                  [[ item.enable ? '{{ i18n "pages.userinfo.enabled" }}' : '{{ i18n "pages.userinfo.disabled" }}' ]]
+                </span>
+              </a-descriptions-item>
+            </a-descriptions>
+          </a-card>
+          <div v-if="inbounds.length === 0" class="centered">
+            <a-empty description='{{ i18n "pages.userinfo.noData" }}' />
+          </div>
+          <div class="centered" :style="{ marginTop: '2rem' }">
+            <a-button type="link" href="{{ .base_path }}logout">{{ i18n "pages.userinfo.logout" }}</a-button>
+          </div>
+        </template>
+      </a-col>
+    </a-row>
+  </a-layout-content>
+</a-layout>
+{{template "page/body_scripts" .}}
+{{template "component/aThemeSwitch" .}}
+<script>
+  const app = new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#app',
+    data: {
+      themeSwitcher,
+      inbounds: [],
+      loading: true
+    },
+    async mounted() {
+      await this.fetchUserInfo();
+    },
+    methods: {
+      async fetchUserInfo() {
+        const msg = await HttpUtil.get('/panel/api/user/info');
+        if (msg.success) {
+          this.inbounds = msg.obj || [];
+        }
+        this.loading = false;
+      },
+      humanReadableSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(1024));
+        return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i];
+      }
+    }
+  });
+</script>
+{{ template "page/body_end" .}}

@@ -121,6 +121,19 @@
 
 [pages.userinfo]
 "title" = "User Info"
+"remark" = "Remark"
+"protocol" = "Protocol"
+"upload" = "Upload"
+"download" = "Download"
+"total" = "Total Traffic"
+"expiryTime" = "Expiry Time"
+"status" = "Status"
+"enabled" = "Enabled"
+"disabled" = "Disabled"
+"unlimited" = "Unlimited"
+"permanent" = "Permanent"
+"noData" = "No data available"
+"logout" = "Logout"
 
 [pages.index]
 "title" = "System Status"
