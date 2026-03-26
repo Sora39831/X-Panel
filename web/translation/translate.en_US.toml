@@ -97,6 +97,31 @@
 "wrongUsernameOrPassword" = "Invalid username or password or two-factor code."
 "successLogin" = " You have successfully logged into your account."
 
+[pages.register]
+"title" = "Register"
+"email" = "Email"
+"password" = "Password"
+"confirmPassword" = "Confirm Password"
+"captcha" = "Captcha"
+
+[pages.register.toasts]
+"invalidFormData" = "Invalid form data"
+"emptyEmail" = "Email is required"
+"emailLengthError" = "Email must be between 4 and 64 characters"
+"invalidEmail" = "Invalid email format"
+"emptyPassword" = "Password is required"
+"passwordTooShort" = "Password must be at least 6 characters"
+"passwordTooWeak" = "Password must contain letters and numbers"
+"passwordMismatch" = "Passwords do not match"
+"wrongCaptcha" = "Incorrect captcha"
+"tooManyRequests" = "Too many requests, please try again later"
+"emailAlreadyExists" = "This email is already registered"
+"registerFailed" = "Registration failed, please try again later"
+"successRegister" = "Registration successful, please log in"
+
+[pages.userinfo]
+"title" = "User Info"
+
 [pages.index]
 "title" = "System Status"
 "cpu" = "CPU"

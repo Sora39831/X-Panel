@@ -513,40 +513,86 @@
             </a-row>
             <a-row type="flex" justify="center">
               <a-col span="24">
-                <a-form @submit.prevent="login">
-                  <a-space direction="vertical" size="middle">
-                    <a-form-item>
-                      <a-input autocomplete="username" name="username" v-model.trim="user.username"
-                        placeholder='{{ i18n "username" }}' autofocus required>
-                        <a-icon slot="prefix" type="user" :style="{ fontSize: '1rem' }"></a-icon>
-                      </a-input>
-                    </a-form-item>
-                    <a-form-item>
-                      <a-input-password autocomplete="password" name="password" v-model.trim="user.password"
-                        placeholder='{{ i18n "password" }}' required>
-                        <a-icon slot="prefix" type="lock" :style="{ fontSize: '1rem' }"></a-icon>
-                      </a-input-password>
-                    </a-form-item>
-                    <a-form-item v-if="twoFactorEnable">
-                      <a-input autocomplete="one-time-code" name="twoFactorCode" v-model.trim="user.twoFactorCode"
-                        placeholder='{{ i18n "twoFactorCode" }}' required>
-                        <a-icon slot="prefix" type="key" :style="{ fontSize: '1rem' }"></a-icon>
-                      </a-input>
-                    </a-form-item>
-                    <a-form-item>
-                      <a-row justify="center" class="centered">
-                        <div
-                          :style="{ height: '50px', marginTop: '1rem', ...loadingStates.spinning ? { width: '52px' } : { display: 'inline-block' } }"
-                          class="wave-btn-bg wave-btn-bg-cl">
-                          <a-button class="ant-btn-primary-login" type="primary" :loading="loadingStates.spinning"
-                            :icon="loadingStates.spinning ? 'poweroff' : undefined" html-type="submit">
-                            [[ loadingStates.spinning ? '' : '{{ i18n "login" }}' ]]
-                          </a-button>
-                        </div>
-                      </a-row>
-                    </a-form-item>
-                  </a-space>
-                </a-form>
+                <a-tabs :active-key="activeTab" @change="activeTab = $event" :animated="false">
+                  <a-tab-pane key="login" tab='{{ i18n "login" }}'>
+                    <a-form @submit.prevent="login">
+                      <a-space direction="vertical" size="middle">
+                        <a-form-item>
+                          <a-input autocomplete="username" name="username" v-model.trim="user.username"
+                            placeholder='{{ i18n "username" }}' autofocus required>
+                            <a-icon slot="prefix" type="user" :style="{ fontSize: '1rem' }"></a-icon>
+                          </a-input>
+                        </a-form-item>
+                        <a-form-item>
+                          <a-input-password autocomplete="password" name="password" v-model.trim="user.password"
+                            placeholder='{{ i18n "password" }}' required>
+                            <a-icon slot="prefix" type="lock" :style="{ fontSize: '1rem' }"></a-icon>
+                          </a-input-password>
+                        </a-form-item>
+                        <a-form-item v-if="twoFactorEnable">
+                          <a-input autocomplete="one-time-code" name="twoFactorCode" v-model.trim="user.twoFactorCode"
+                            placeholder='{{ i18n "twoFactorCode" }}' required>
+                            <a-icon slot="prefix" type="key" :style="{ fontSize: '1rem' }"></a-icon>
+                          </a-input>
+                        </a-form-item>
+                        <a-form-item>
+                          <a-row justify="center" class="centered">
+                            <div
+                              :style="{ height: '50px', marginTop: '1rem', ...loadingStates.spinning ? { width: '52px' } : { display: 'inline-block' } }"
+                              class="wave-btn-bg wave-btn-bg-cl">
+                              <a-button class="ant-btn-primary-login" type="primary" :loading="loadingStates.spinning"
+                                :icon="loadingStates.spinning ? 'poweroff' : undefined" html-type="submit">
+                                [[ loadingStates.spinning ? '' : '{{ i18n "login" }}' ]]
+                              </a-button>
+                            </div>
+                          </a-row>
+                        </a-form-item>
+                      </a-space>
+                    </a-form>
+                  </a-tab-pane>
+                  <a-tab-pane key="register" tab='{{ i18n "pages.register.title" }}'>
+                    <a-form @submit.prevent="register">
+                      <a-space direction="vertical" size="middle">
+                        <a-form-item>
+                          <a-input autocomplete="email" name="regEmail" v-model.trim="registerUser.email"
+                            placeholder='{{ i18n "pages.register.email" }}' required>
+                            <a-icon slot="prefix" type="mail" :style="{ fontSize: '1rem' }"></a-icon>
+                          </a-input>
+                        </a-form-item>
+                        <a-form-item>
+                          <a-input-password autocomplete="new-password" name="regPassword" v-model.trim="registerUser.password"
+                            placeholder='{{ i18n "pages.register.password" }}' required>
+                            <a-icon slot="prefix" type="lock" :style="{ fontSize: '1rem' }"></a-icon>
+                          </a-input-password>
+                        </a-form-item>
+                        <a-form-item>
+                          <a-input-password autocomplete="new-password" name="regConfirmPassword" v-model.trim="registerUser.confirmPassword"
+                            placeholder='{{ i18n "pages.register.confirmPassword" }}' required>
+                            <a-icon slot="prefix" type="lock" :style="{ fontSize: '1rem' }"></a-icon>
+                          </a-input-password>
+                        </a-form-item>
+                        <a-form-item>
+                          <a-input name="regCaptcha" v-model.trim="registerUser.captcha"
+                            placeholder='{{ i18n "pages.register.captcha" }}: [[ captchaQuestion ]]' required>
+                            <a-icon slot="prefix" type="safety-certificate" :style="{ fontSize: '1rem' }"></a-icon>
+                          </a-input>
+                        </a-form-item>
+                        <a-form-item>
+                          <a-row justify="center" class="centered">
+                            <div
+                              :style="{ height: '50px', marginTop: '1rem', ...loadingStates.spinning ? { width: '52px' } : { display: 'inline-block' } }"
+                              class="wave-btn-bg wave-btn-bg-cl">
+                              <a-button class="ant-btn-primary-login" type="primary" :loading="loadingStates.spinning"
+                                :icon="loadingStates.spinning ? 'poweroff' : undefined" html-type="submit">
+                                [[ loadingStates.spinning ? '' : '{{ i18n "pages.register.title" }}' ]]
+                              </a-button>
+                            </div>
+                          </a-row>
+                        </a-form-item>
+                      </a-space>
+                    </a-form>
+                  </a-tab-pane>
+                </a-tabs>
               </a-col>
             </a-row>
           </template>
@@ -573,11 +619,21 @@
         twoFactorCode: ""
       },
       twoFactorEnable: false,
-      lang: ""
+      lang: "",
+      activeTab: "login",
+      registerUser: {
+        email: "",
+        password: "",
+        confirmPassword: "",
+        captcha: "",
+        captchaAnswer: ""
+      },
+      captchaQuestion: ""
     },
     async mounted() {
       this.lang = LanguageManager.getLanguage();
       this.twoFactorEnable = await this.getTwoFactorEnable();
+      this.generateCaptcha();
     },
     methods: {
       async login() {
@@ -600,6 +656,36 @@
 
           return msg.obj;
         }
+      },
+      generateCaptcha() {
+        const a = Math.floor(Math.random() * 10) + 1;
+        const b = Math.floor(Math.random() * 10) + 1;
+        this.captchaQuestion = a + " + " + b + " = ?";
+        this.registerUser.captchaAnswer = (a + b).toString();
+      },
+      async register() {
+        if (this.registerUser.password !== this.registerUser.confirmPassword) {
+          this.$message.error('{{ i18n "pages.register.toasts.passwordMismatch" }}');
+          return;
+        }
+        if (this.registerUser.captcha !== this.registerUser.captchaAnswer) {
+          this.$message.error('{{ i18n "pages.register.toasts.wrongCaptcha" }}');
+          this.generateCaptcha();
+          return;
+        }
+        this.loadingStates.spinning = true;
+        const msg = await HttpUtil.post('/register', {
+          email: this.registerUser.email,
+          password: this.registerUser.password,
+          captcha: this.registerUser.captcha,
+          captchaAnswer: this.registerUser.captchaAnswer
+        });
+        if (msg.success) {
+          this.$message.success(msg.msg);
+          this.activeTab = "login";
+          this.user.username = this.registerUser.email;
+        }
+        this.loadingStates.spinning = false;
       },
     },
   });
