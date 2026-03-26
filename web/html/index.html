@@ -841,7 +841,56 @@
 				</a-list-item-meta>
 				<a-button @click="importDatabase()" type="primary" icon="upload" />
 			</a-list-item>
+			<a-list-item class="ant-backup-list-item">
+				<a-list-item-meta>
+					<template #title>{{ i18n "pages.index.partialExport" }}</template>
+					<template #description>{{ i18n "pages.index.partialExportDesc" }}</template>
+				</a-list-item-meta>
+				<a-button @click="openPartialExport()" type="primary" icon="download"/>
+			</a-list-item>
+			<a-list-item class="ant-backup-list-item">
+				<a-list-item-meta>
+					<template #title>{{ i18n "pages.index.partialImport" }}</template>
+					<template #description>{{ i18n "pages.index.partialImportDesc" }}</template>
+				</a-list-item-meta>
+				<a-button @click="importPartialDatabase()" type="primary" icon="upload" />
+			</a-list-item>
 		</a-list>
+	</a-modal>
+	<a-modal id="partial-export-modal"
+		v-model="partialExportModal.visible"
+		title='{{ i18n "pages.index.partialExportTitle" }}'
+		@ok="exportPartialDatabase()"
+		:ok-text='{{ i18n "pages.index.exportDatabase" }}'>
+		<a-checkbox-group v-model="partialExportModal.selectedTables">
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="users" :title='{{ i18n "pages.index.tableUsersTip" }}'>{{ i18n "pages.index.tableUsers" }}</a-checkbox>
+			</div>
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="inbounds" :title='{{ i18n "pages.index.tableInboundsTip" }}'>{{ i18n "pages.index.tableInbounds" }}</a-checkbox>
+			</div>
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="client_traffics" :title='{{ i18n "pages.index.tableClientTrafficsTip" }}'>{{ i18n "pages.index.tableClientTraffics" }}</a-checkbox>
+			</div>
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="settings" :title='{{ i18n "pages.index.tableSettingsTip" }}'>{{ i18n "pages.index.tableSettings" }}</a-checkbox>
+			</div>
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="inbound_client_ips" :title='{{ i18n "pages.index.tableInboundClientIpsTip" }}'>{{ i18n "pages.index.tableInboundClientIps" }}</a-checkbox>
+			</div>
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="outbound_traffics" :title='{{ i18n "pages.index.tableOutboundTrafficsTip" }}'>{{ i18n "pages.index.tableOutboundTraffics" }}</a-checkbox>
+			</div>
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="history_of_seeders" :title='{{ i18n "pages.index.tableHistoryOfSeedersTip" }}'>{{ i18n "pages.index.tableHistoryOfSeeders" }}</a-checkbox>
+			</div>
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="link_histories" :title='{{ i18n "pages.index.tableLinkHistoriesTip" }}'>{{ i18n "pages.index.tableLinkHistories" }}</a-checkbox>
+			</div>
+			<div style="margin-bottom: 8px;">
+				<a-checkbox value="lottery_wins" :title='{{ i18n "pages.index.tableLotteryWinsTip" }}'>{{ i18n "pages.index.tableLotteryWins" }}</a-checkbox>
+			</div>
+		</a-checkbox-group>
 	</a-modal>
 </a-layout>
   
@@ -1111,6 +1160,10 @@ ${dateTime}
             logModal,
             xraylogModal,
             backupModal,
+            partialExportModal: {
+                visible: false,
+                selectedTables: [],
+            },
             loadingTip: '{{ i18n "loading"}}',
             showAlert: false,
             showIp: false,
@@ -1326,6 +1379,49 @@ ${dateTime}
                             this.loading(true);
                             await PromiseUtil.sleep(5000);
                             location.reload();
+                        }
+                    }
+                });
+                fileInput.click();
+            },
+            openPartialExport() {
+                this.partialExportModal.selectedTables = [];
+                this.partialExportModal.visible = true;
+            },
+            exportPartialDatabase() {
+                if (this.partialExportModal.selectedTables.length === 0) {
+                    return;
+                }
+                const tables = this.partialExportModal.selectedTables.join(',');
+                this.partialExportModal.visible = false;
+                window.location = basePath.replace(/\/$/, '') + '/panel/api/server/getPartialDb?tables=' + tables;
+            },
+            importPartialDatabase() {
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = '.json';
+                fileInput.addEventListener('change', async (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        const formData = new FormData();
+                        formData.append('db', file);
+                        backupModal.hide();
+                        this.loading(true);
+                        const msg = await HttpUtil.post('/panel/api/server/importPartialDb', formData, {
+                            headers: {
+                                'Content-Type': 'multipart/form-data',
+                            }
+                        });
+                        this.loading(false);
+                        if (msg.success) {
+                            this.loading(true);
+                            const restartMsg = await HttpUtil.post("/panel/setting/restartPanel");
+                            this.loading(false);
+                            if (restartMsg.success) {
+                                this.loading(true);
+                                await PromiseUtil.sleep(5000);
+                                location.reload();
+                            }
                         }
                     }
                 });
