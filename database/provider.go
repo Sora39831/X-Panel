@@ -22,6 +22,7 @@ type DBProvider interface {
 	CreateUser(user *model.User) error
 	UpdateUserByID(id int, updates map[string]any) error
 	SaveUser(user *model.User) error
+	DeleteUserByUsername(username string) error
 	GetAllUsers() ([]*model.User, error)
 
 	// === Inbound operations ===
