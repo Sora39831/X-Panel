@@ -28,8 +28,7 @@ WORKDIR /app
 RUN apk add --no-cache --update \
   ca-certificates \
   tzdata \
-  fail2ban \
-  bash
+  fail2ban
 
 COPY --from=builder /app/build/ /app/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
@@ -49,6 +48,7 @@ RUN chmod +x \
   /usr/bin/x-ui
 
 ENV XUI_ENABLE_FAIL2BAN="true"
+EXPOSE 13688
 VOLUME [ "/etc/x-ui" ]
 CMD [ "./x-ui" ]
 ENTRYPOINT [ "/app/DockerEntrypoint.sh" ]

@@ -1,0 +1,12 @@
+.git
+.github
+.claude
+.worktrees
+docs
+windows_files
+*.md
+LICENSE
+install.sh
+dnsjc.sh
+x-ui.service
+docker-compose.yml
