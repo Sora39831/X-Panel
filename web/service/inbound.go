@@ -405,6 +405,29 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	return inbound, needRestart, err
 }
 
+// emailExistsInOtherInbounds 检查指定 email 是否还存在于其他入站中（排除 excludeInboundId）
+func (s *InboundService) emailExistsInOtherInbounds(email string, excludeInboundId int) (bool, error) {
+	allInbounds, err := s.GetAllInbounds()
+	if err != nil {
+		return false, err
+	}
+	for _, inbound := range allInbounds {
+		if inbound.Id == excludeInboundId {
+			continue
+		}
+		clients, err := s.GetClients(inbound)
+		if err != nil {
+			continue
+		}
+		for _, client := range clients {
+			if client.Email == email {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (s *InboundService) DelInbound(id int) (bool, error) {
 	if config.GetDBType() == "mongodb" {
 		provider := database.GetProvider()
@@ -446,6 +469,24 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 				}
 			}
 		}
+		// 删除对应的 User 记录（仅当该 email 不在其他入站中时才删除）
+		for _, client := range clients {
+			if client.Email == "" {
+				continue
+			}
+			exists, err := s.emailExistsInOtherInbounds(client.Email, id)
+			if err != nil {
+				logger.Warningf("Failed to check if email %s exists in other inbounds: %v", client.Email, err)
+				continue
+			}
+			if exists {
+				logger.Debugf("Skipping user deletion for %s: still exists in other inbounds", client.Email)
+				continue
+			}
+			if err := provider.DeleteUserByUsername(client.Email); err != nil {
+				logger.Warningf("Failed to delete user %s: %v", client.Email, err)
+			}
+		}
 		return needRestart, provider.DeleteInboundByID(id)
 	}
 	db := database.GetDB()
@@ -484,6 +525,24 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		err := s.DelClientIPs(db, client.Email)
 		if err != nil {
 			return false, err
+		}
+	}
+	// 删除对应的 User 记录（仅当该 email 不在其他入站中时才删除）
+	for _, client := range clients {
+		if client.Email == "" {
+			continue
+		}
+		exists, checkErr := s.emailExistsInOtherInbounds(client.Email, id)
+		if checkErr != nil {
+			logger.Warningf("Failed to check if email %s exists in other inbounds: %v", client.Email, checkErr)
+			continue
+		}
+		if exists {
+			logger.Debugf("Skipping user deletion for %s: still exists in other inbounds", client.Email)
+			continue
+		}
+		if delErr := db.Where("username = ?", client.Email).Delete(model.User{}).Error; delErr != nil {
+			logger.Warningf("Failed to delete user %s: %v", client.Email, delErr)
 		}
 	}
 
