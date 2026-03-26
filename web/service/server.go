@@ -686,6 +686,55 @@ func (s *ServerService) GetPartialDb(tables []string) ([]byte, error) {
 	return json.Marshal(export)
 }
 
+func (s *ServerService) ImportPartialDb(file multipart.File) error {
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return common.NewErrorf("error reading file: %v", err)
+	}
+
+	var backup struct {
+		Version    string                            `json:"version"`
+		ExportedAt string                            `json:"exported_at"`
+		Tables     map[string][]map[string]interface{} `json:"tables"`
+	}
+	if err := json.Unmarshal(data, &backup); err != nil {
+		return common.NewErrorf("error parsing JSON: %v", err)
+	}
+	if backup.Tables == nil {
+		return common.NewError("invalid backup format: missing 'tables' key")
+	}
+
+	db := database.GetDB()
+	for tableName, rows := range backup.Tables {
+		// Validate against allowlist
+		allowed := false
+		for _, t := range allowedPartialTables {
+			if tableName == t {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return common.NewErrorf("table '%s' is not allowed for partial import", tableName)
+		}
+
+		// Clear existing data
+		if err := db.Exec("DELETE FROM " + tableName).Error; err != nil {
+			return common.NewErrorf("error clearing table %s: %v", tableName, err)
+		}
+
+		// Insert rows in batches
+		if len(rows) > 0 {
+			if err := db.Table(tableName).Create(&rows).Error; err != nil {
+				return common.NewErrorf("error inserting into table %s: %v", tableName, err)
+			}
+		}
+	}
+
+	s.xrayService.SetToNeedRestart()
+	return nil
+}
+
 func (s *ServerService) ImportDB(file multipart.File) error {
 	// Check if the file is a SQLite database
 	isValidDb, err := database.IsSQLiteDB(file)
