@@ -39,7 +39,7 @@ func (a *BaseController) checkLogin(c *gin.Context) {
 
 		allowed := false
 		for _, ap := range allowedPaths {
-			if relativePath == ap || strings.HasPrefix(relativePath, ap) {
+			if relativePath == ap || strings.HasPrefix(relativePath, ap+"/") {
 				allowed = true
 				break
 			}
