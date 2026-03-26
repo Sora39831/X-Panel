@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"x-ui/web/global"
@@ -59,6 +60,8 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.POST("/logs/:count", a.getLogs)
 	g.POST("/xraylogs/:count", a.getXrayLogs)
 	g.POST("/importDB", a.importDB)
+	g.GET("/getPartialDb", a.getPartialDb)
+	g.POST("/importPartialDb", a.importPartialDb)
 	g.POST("/getNewEchCert", a.getNewEchCert)
 	g.POST("/history/save", a.saveHistory)
 	g.GET("/history/load", a.loadHistory)
@@ -246,6 +249,42 @@ func (a *ServerController) importDB(c *gin.Context) {
 		return
 	}
 	jsonObj(c, I18nWeb(c, "pages.index.importDatabaseSuccess"), nil)
+}
+
+func (a *ServerController) getPartialDb(c *gin.Context) {
+	tablesParam := c.Query("tables")
+	if tablesParam == "" {
+		jsonMsg(c, I18nWeb(c, "pages.index.partialExportError"), fmt.Errorf("no tables specified"))
+		return
+	}
+	tables := strings.Split(tablesParam, ",")
+	data, err := a.serverService.GetPartialDb(tables)
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.index.partialExportError"), err)
+		return
+	}
+	c.Header("Content-Type", "application/json")
+	c.Header("Content-Disposition", "attachment; filename=partial-backup.json")
+	c.Writer.Write(data)
+}
+
+func (a *ServerController) importPartialDb(c *gin.Context) {
+	file, _, err := c.Request.FormFile("db")
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.index.readDatabaseError"), err)
+		return
+	}
+	defer file.Close()
+	defer a.serverService.RestartXrayService()
+	defer func() {
+		a.lastGetStatusTime = time.Now()
+	}()
+	err = a.serverService.ImportPartialDb(file)
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.index.partialImportError"), err)
+		return
+	}
+	jsonObj(c, I18nWeb(c, "pages.index.partialImportSuccess"), nil)
 }
 
 func (a *ServerController) getNewX25519Cert(c *gin.Context) {
