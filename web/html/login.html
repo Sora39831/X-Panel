@@ -444,12 +444,16 @@
   .ant-space-item .ant-switch {
     margin: 2px 0 4px;
   }
+
+  #turnstile-widget {
+    display: flex;
+    justify-content: center;
+    min-height: 65px;
+  }
 </style>
 {{ template "page/head_end" .}}
-<script src="https://challenges.cloudflare.com/turnstile/v0.js" async defer></script>
-
 {{ template "page/body_start" .}}
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
   <transition name="list" appear>
     <a-layout-content class="under" :style="{ minHeight: '0' }">
@@ -556,9 +560,9 @@
                     <a-form @submit.prevent="register">
                       <a-space direction="vertical" size="middle">
                         <a-form-item>
-                          <a-input autocomplete="email" name="regEmail" v-model.trim="registerUser.email"
-                            placeholder='{{ i18n "pages.register.email" }}' required>
-                            <a-icon slot="prefix" type="mail" :style="{ fontSize: '1rem' }"></a-icon>
+                          <a-input autocomplete="username" name="regUsername" v-model.trim="registerUser.username"
+                            placeholder='{{ i18n "username" }}' required>
+                            <a-icon slot="prefix" type="user" :style="{ fontSize: '1rem' }"></a-icon>
                           </a-input>
                         </a-form-item>
                         <a-form-item>
@@ -621,7 +625,7 @@
       lang: "",
       activeTab: "login",
       registerUser: {
-        email: "",
+        username: "",
         password: "",
         confirmPassword: ""
       },
@@ -699,14 +703,14 @@
         }
         this.loadingStates.spinning = true;
         const msg = await HttpUtil.post('/register', {
-          email: this.registerUser.email,
+          email: this.registerUser.username,
           password: this.registerUser.password,
           turnstileToken: this.turnstileToken
         });
         if (msg.success) {
           this.$message.success(msg.msg);
           this.activeTab = "login";
-          this.user.username = this.registerUser.email;
+          this.user.username = this.registerUser.username;
         }
         turnstile.reset();
         this.turnstileToken = "";
