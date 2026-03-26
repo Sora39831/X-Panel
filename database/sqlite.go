@@ -48,6 +48,10 @@ func (p *SQLiteProvider) SaveUser(user *model.User) error {
 	return db.Save(user).Error
 }
 
+func (p *SQLiteProvider) DeleteUserByUsername(username string) error {
+	return db.Where("username = ?", username).Delete(model.User{}).Error
+}
+
 func (p *SQLiteProvider) GetAllUsers() ([]*model.User, error) {
 	var users []*model.User
 	err := db.Model(model.User{}).Find(&users).Error
@@ -161,6 +165,10 @@ func (t *SQLiteTransaction) UpdateUserByID(id int, updates map[string]any) error
 
 func (t *SQLiteTransaction) SaveUser(user *model.User) error {
 	return t.tx.Save(user).Error
+}
+
+func (t *SQLiteTransaction) DeleteUserByUsername(username string) error {
+	return t.tx.Where("username = ?", username).Delete(model.User{}).Error
 }
 
 func (t *SQLiteTransaction) GetAllUsers() ([]*model.User, error) {

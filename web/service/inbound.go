@@ -1163,6 +1163,10 @@ func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool,
 				notDepleted = traffics[0].Enable
 				provider.DeleteClientTrafficByID(traffics[0].Id)
 			}
+			// 删除对应的 User 记录，防止已删除的客户仍能登录
+			if err := provider.DeleteUserByUsername(email); err != nil {
+				logger.Warningf("Failed to delete user %s: %v", email, err)
+			}
 			needRestart := false
 			if needApiDel && notDepleted {
 				s.xrayApi.Init(p.GetAPIPort())
@@ -1250,6 +1254,10 @@ func (s *InboundService) DelInboundClient(inboundId int, clientId string) (bool,
 		if err != nil {
 			logger.Error("Delete stats Data Error")
 			return false, err
+		}
+		// 删除对应的 User 记录，防止已删除的客户仍能登录
+		if delErr := db.Where("username = ?", email).Delete(model.User{}).Error; delErr != nil {
+			logger.Warningf("Failed to delete user %s: %v", email, delErr)
 		}
 		if needApiDel && notDepleted {
 			s.xrayApi.Init(p.GetAPIPort())

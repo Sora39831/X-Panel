@@ -109,6 +109,11 @@ func (p *MongoDBProvider) SaveUser(user *model.User) error {
 	return err
 }
 
+func (p *MongoDBProvider) DeleteUserByUsername(username string) error {
+	_, err := p.db.Collection("users").DeleteOne(context.TODO(), bson.M{"username": username})
+	return err
+}
+
 func (p *MongoDBProvider) GetAllUsers() ([]*model.User, error) {
 	cursor, err := p.db.Collection("users").Find(context.TODO(), bson.M{})
 	if err != nil {
@@ -351,6 +356,11 @@ func (t *MongoDBTransaction) UpdateUserByID(id int, updates map[string]any) erro
 
 func (t *MongoDBTransaction) SaveUser(user *model.User) error {
 	_, err := t.db.Collection("users").ReplaceOne(t.sessionCtx(), bson.M{"_id": user.Id}, user)
+	return err
+}
+
+func (t *MongoDBTransaction) DeleteUserByUsername(username string) error {
+	_, err := t.db.Collection("users").DeleteOne(t.sessionCtx(), bson.M{"username": username})
 	return err
 }
 
