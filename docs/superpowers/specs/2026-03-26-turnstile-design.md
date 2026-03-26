@@ -58,7 +58,7 @@ Add:
 
 **onTabChange(key):** Replace `activeTab = $event` binding with method call. On switch to register tab, call `this.$nextTick(() => this.renderTurnstile())`.
 
-**renderTurnstile():** Polling function that checks `typeof turnstile !== 'undefined'`. If undefined, retries after 200ms. Once ready and not yet rendered, calls `turnstile.render('#turnstile-widget', { sitekey: '0x4AAAAAACwR0LBVK-2kqbSa', callback: (token) => { this.turnstileToken = token; } })` and sets `turnstileRendered = true`.
+**renderTurnstile():** Polling function that checks `typeof turnstile !== 'undefined'`. If undefined, retries after 200ms (max 50 attempts / 10 seconds). If max retries exceeded, shows an error message to the user. Once ready and not yet rendered, calls `turnstile.render('#turnstile-widget', { sitekey: '0x4AAAAAACwR0LBVK-2kqbSa', callback: (token) => { this.turnstileToken = token; } })` and sets `turnstileRendered = true`. The render call is wrapped in try/catch to handle invalid sitekey or missing container element.
 
 **register():**
 - Remove old captcha match check (`captcha !== captchaAnswer`)
@@ -91,17 +91,30 @@ type RegisterForm struct {
 ```go
 const turnstileSecretKey = "0x4AAAAAACwR0BwMTZCdnEg_0NWHEBa6RwE"
 
-func verifyTurnstile(token string, remoteIP string) bool {
+func verifyTurnstile(token string, clientIP string) bool {
     resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
         "secret":   {turnstileSecretKey},
         "response": {token},
-        "remoteip": {remoteIP},
+        "remoteip": {clientIP},
     })
-    // decode JSON, return result.Success
+    if err != nil {
+        logger.Warningf("Turnstile verification request failed: %v", err)
+        return false
+    }
+    defer resp.Body.Close()
+
+    var result struct {
+        Success bool `json:"success"`
+    }
+    if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+        logger.Warningf("Failed to decode Turnstile response: %v", err)
+        return false
+    }
+    return result.Success
 }
 ```
 
-Required imports to add: `net/url`, `encoding/json`.
+Required imports to add: `net/url`, `encoding/json`. (`net/http` and `x-ui/logger` are already imported.)
 
 ### 3. Register Handler
 
