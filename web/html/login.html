@@ -446,6 +446,7 @@
   }
 </style>
 {{ template "page/head_end" .}}
+<script src="https://challenges.cloudflare.com/turnstile/v0.js" async defer></script>
 
 {{ template "page/body_start" .}}
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
@@ -707,6 +708,8 @@
           this.activeTab = "login";
           this.user.username = this.registerUser.email;
         }
+        turnstile.reset();
+        this.turnstileToken = "";
         this.loadingStates.spinning = false;
         turnstile.reset();
         this.turnstileToken = "";
