@@ -91,6 +91,7 @@ func initUser() error {
 		user := &model.User{
 			Username: defaultUsername,
 			Password: hashedPassword,
+			Role:     "admin",
 		}
 		return db.Create(user).Error
 	}
@@ -130,6 +131,38 @@ func runSeeders(isUsersEmpty bool) error {
 				SeederName: "UserPasswordHash",
 			}
 			return db.Create(hashSeeder).Error
+		}
+
+		if !slices.Contains(seedersHistory, "UserRoleMigration") {
+			if config.GetDBType() != "mongodb" {
+				if err := db.Model(&model.User{}).Where("role = ? OR role IS NULL", "").Update("role", "admin").Error; err != nil {
+					log.Printf("Error migrating user roles: %v", err)
+					return err
+				}
+			} else {
+				p := GetProvider()
+				users, err := p.GetAllUsers()
+				if err != nil {
+					log.Printf("Error getting all users for role migration: %v", err)
+					return err
+				}
+				for _, user := range users {
+					if user.Role == "" {
+						user.Role = "admin"
+						if err := p.SaveUser(user); err != nil {
+							log.Printf("Error saving user role for '%s': %v", user.Username, err)
+							return err
+						}
+					}
+				}
+			}
+			roleSeeder := &model.HistoryOfSeeders{
+				SeederName: "UserRoleMigration",
+			}
+			if err := db.Create(roleSeeder).Error; err != nil {
+				log.Printf("Error recording UserRoleMigration seeder: %v", err)
+				return err
+			}
 		}
 	}
 

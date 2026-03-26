@@ -24,6 +24,7 @@ type User struct {
 	Id       int    `json:"id" gorm:"primaryKey;autoIncrement" bson:"_id,omitempty"`
 	Username string `json:"username" bson:"username"`
 	Password string `json:"password" bson:"password"`
+	Role     string `json:"role" gorm:"default:admin" bson:"role"` // "admin" 或 "user"
 }
 
 type Inbound struct {
