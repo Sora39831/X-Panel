@@ -444,12 +444,16 @@
   .ant-space-item .ant-switch {
     margin: 2px 0 4px;
   }
+
+  #turnstile-widget {
+    display: flex;
+    justify-content: center;
+    min-height: 65px;
+  }
 </style>
 {{ template "page/head_end" .}}
-<script src="https://challenges.cloudflare.com/turnstile/v0.js" async defer></script>
-
 {{ template "page/body_start" .}}
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
   <transition name="list" appear>
     <a-layout-content class="under" :style="{ minHeight: '0' }">
