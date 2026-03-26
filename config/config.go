@@ -34,6 +34,64 @@ func GetName() string {
 	return strings.TrimSpace(name)
 }
 
+func GetDBType() string {
+	dbType := os.Getenv("XUI_DB_TYPE")
+	if dbType == "" {
+		return "sqlite"
+	}
+	return dbType
+}
+
+func GetMongoURI() string {
+	confPath := "/etc/x-ui/mongodb.conf"
+	if GetDBFolderPath() != "/etc/x-ui" {
+		confPath = GetDBFolderPath() + "/mongodb.conf"
+	}
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		return "mongodb://localhost:27017"
+	}
+
+	var host, port, user, pass, dbName string = "localhost", "27017", "", "", "xui"
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		switch key {
+		case "MONGO_HOST":
+			host = val
+		case "MONGO_PORT":
+			port = val
+		case "MONGO_USER":
+			user = val
+		case "MONGO_PASS":
+			pass = val
+		case "MONGO_DB":
+			dbName = val
+		}
+	}
+
+	if user != "" && pass != "" {
+		return fmt.Sprintf("mongodb://%s:%s@%s:%s/%s", user, pass, host, port, dbName)
+	}
+	return fmt.Sprintf("mongodb://%s:%s/%s", host, port, dbName)
+}
+
+func GetMongoDBName() string {
+	dbName := os.Getenv("MONGO_DB")
+	if dbName == "" {
+		return "xui"
+	}
+	return dbName
+}
+
 func GetLogLevel() LogLevel {
 	if IsDebug() {
 		return Debug

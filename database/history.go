@@ -7,10 +7,10 @@ import (
 
 // LinkHistory GORM aodel for link_history table
 type LinkHistory struct {
-	Id         int       `gorm:"primaryKey"`
-	Type       string    `gorm:"type:varchar(255);not null"`
-	Link       string    `gorm:"type:text;not null"`
-	CreatedAt  time.Time `gorm:"not null"`
+	Id        int       `gorm:"primaryKey" bson:"_id,omitempty"`
+	Type      string    `gorm:"type:varchar(255);not null" bson:"type"`
+	Link      string    `gorm:"type:text;not null" bson:"link"`
+	CreatedAt time.Time `gorm:"not null" bson:"created_at"`
 }
 
 // AddLinkHistory 在一个事务中添加新链接记录并修剪旧记录。

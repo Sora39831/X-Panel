@@ -10,12 +10,14 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 	"sync"
                  "crypto/rand"
                  "encoding/hex"
                  "fmt" // 中文注释 (新增): 导入 fmt 包用于格式化消息
 
+	"x-ui/config"
 	"x-ui/database"
 	"x-ui/database/model"
 	"x-ui/logger"
@@ -178,10 +180,23 @@ func (j *CheckDeviceLimitJob) parseAccessLog() {
 
 // checkAllClientsLimit 中文注释: 核心功能，检查所有用户，对超限的执行封禁，对恢复的执行解封
 func (j *CheckDeviceLimitJob) checkAllClientsLimit() {
-	db := database.GetDB()
 	var inbounds []*model.Inbound
-	// 中文注释: 这里仅查询启用了设备限制(device_limit > 0)并且自身是开启状态的入站规则
-	db.Where("device_limit > 0 AND enable = ?", true).Find(&inbounds)
+
+	if config.GetDBType() == "mongodb" {
+		allInbounds, err := database.GetProvider().GetAllInboundsWithClientStats()
+		if err != nil {
+			return
+		}
+		for _, inbound := range allInbounds {
+			if inbound.DeviceLimit > 0 && inbound.Enable {
+				inbounds = append(inbounds, inbound)
+			}
+		}
+	} else {
+		db := database.GetDB()
+		// 中文注释: 这里仅查询启用了设备限制(device_limit > 0)并且自身是开启状态的入站规则
+		db.Where("device_limit > 0 AND enable = ?", true).Find(&inbounds)
+	}
 
 	if len(inbounds) == 0 {
 		return
@@ -480,12 +495,20 @@ func (j *CheckClientIpJob) clearAccessLog() {
 }
 
 func (j *CheckClientIpJob) hasLimitIp() bool {
-	db := database.GetDB()
 	var inbounds []*model.Inbound
 
-	err := db.Model(model.Inbound{}).Find(&inbounds).Error
-	if err != nil {
-		return false
+	if config.GetDBType() == "mongodb" {
+		var err error
+		inbounds, err = database.GetProvider().GetAllInboundsWithClientStats()
+		if err != nil {
+			return false
+		}
+	} else {
+		db := database.GetDB()
+		err := db.Model(model.Inbound{}).Find(&inbounds).Error
+		if err != nil {
+			return false
+		}
 	}
 
 	for _, inbound := range inbounds {
@@ -597,6 +620,13 @@ func (j *CheckClientIpJob) checkError(e error) {
 }
 
 func (j *CheckClientIpJob) getInboundClientIps(clientEmail string) (*model.InboundClientIps, error) {
+	if config.GetDBType() == "mongodb" {
+		ips, err := database.GetProvider().GetInboundClientIpsByEmail(clientEmail)
+		if err != nil {
+			return nil, err
+		}
+		return ips, nil
+	}
 	db := database.GetDB()
 	InboundClientIps := &model.InboundClientIps{}
 	err := db.Model(model.InboundClientIps{}).Where("client_email = ?", clientEmail).First(InboundClientIps).Error
@@ -613,6 +643,10 @@ func (j *CheckClientIpJob) addInboundClientIps(clientEmail string, ips []string)
 
 	inboundClientIps.ClientEmail = clientEmail
 	inboundClientIps.Ips = string(jsonIps)
+
+	if config.GetDBType() == "mongodb" {
+		return database.GetProvider().SaveInboundClientIps(inboundClientIps)
+	}
 
 	db := database.GetDB()
 	tx := db.Begin()
@@ -691,17 +725,37 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 		logger.Debug("disAllowedIps:", j.disAllowedIps)
 	}
 
-	db := database.GetDB()
-	err = db.Save(inboundClientIps).Error
-	if err != nil {
-		logger.Error("failed to save inboundClientIps:", err)
-		return false
+	if config.GetDBType() == "mongodb" {
+		err = database.GetProvider().SaveInboundClientIps(inboundClientIps)
+		if err != nil {
+			logger.Error("failed to save inboundClientIps:", err)
+			return false
+		}
+	} else {
+		db := database.GetDB()
+		err = db.Save(inboundClientIps).Error
+		if err != nil {
+			logger.Error("failed to save inboundClientIps:", err)
+			return false
+		}
 	}
 
 	return shouldCleanLog
 }
 
 func (j *CheckClientIpJob) getInboundByEmail(clientEmail string) (*model.Inbound, error) {
+	if config.GetDBType() == "mongodb" {
+		inbounds, err := database.GetProvider().GetAllInboundsWithClientStats()
+		if err != nil {
+			return nil, err
+		}
+		for _, inbound := range inbounds {
+			if strings.Contains(inbound.Settings, clientEmail) {
+				return inbound, nil
+			}
+		}
+		return nil, fmt.Errorf("no inbound found for email %s", clientEmail)
+	}
 	db := database.GetDB()
 	inbound := &model.Inbound{}
 

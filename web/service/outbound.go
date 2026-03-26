@@ -1,6 +1,7 @@
 package service
 
 import (
+	"x-ui/config"
 	"x-ui/database"
 	"x-ui/database/model"
 	"x-ui/logger"
@@ -13,6 +14,42 @@ type OutboundService struct{}
 
 func (s *OutboundService) AddTraffic(traffics []*xray.Traffic, clientTraffics []*xray.ClientTraffic) (error, bool) {
 	var err error
+
+	if config.GetDBType() == "mongodb" {
+		provider := database.GetProvider()
+		tx, err := provider.BeginTransaction()
+		if err != nil {
+			return err, false
+		}
+		defer func() {
+			if err != nil {
+				tx.RollbackTransaction()
+			} else {
+				tx.CommitTransaction()
+			}
+		}()
+
+		for _, traffic := range traffics {
+			if traffic.IsOutbound {
+				outbound, ferr := tx.FirstOrCreateOutboundTraffic(traffic.Tag)
+				if ferr != nil {
+					err = ferr
+					return err, false
+				}
+				outbound.Tag = traffic.Tag
+				outbound.Up = outbound.Up + traffic.Up
+				outbound.Down = outbound.Down + traffic.Down
+				outbound.Total = outbound.Up + outbound.Down
+				if ferr = tx.SaveOutboundTraffic(outbound); ferr != nil {
+					err = ferr
+					return err, false
+				}
+			}
+		}
+
+		return nil, false
+	}
+
 	db := database.GetDB()
 	tx := db.Begin()
 
@@ -65,6 +102,15 @@ func (s *OutboundService) addOutboundTraffic(tx *gorm.DB, traffics []*xray.Traff
 }
 
 func (s *OutboundService) GetOutboundsTraffic() ([]*model.OutboundTraffics, error) {
+	if config.GetDBType() == "mongodb" {
+		traffics, err := database.GetProvider().GetOutboundTraffics()
+		if err != nil {
+			logger.Warning("Error retrieving OutboundTraffics: ", err)
+			return nil, err
+		}
+		return traffics, nil
+	}
+
 	db := database.GetDB()
 	var traffics []*model.OutboundTraffics
 
@@ -78,6 +124,11 @@ func (s *OutboundService) GetOutboundsTraffic() ([]*model.OutboundTraffics, erro
 }
 
 func (s *OutboundService) ResetOutboundTraffic(tag string) error {
+	if config.GetDBType() == "mongodb" {
+		allTags := tag == "-alltags-"
+		return database.GetProvider().ResetOutboundTraffics(tag, allTags)
+	}
+
 	db := database.GetDB()
 
 	whereText := "tag "

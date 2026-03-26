@@ -2,6 +2,7 @@ package database
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -21,6 +22,31 @@ import (
 )
 
 var db *gorm.DB
+var provider DBProvider
+
+func GetProvider() DBProvider {
+	return provider
+}
+
+func NewProvider(dbType string) (DBProvider, error) {
+	switch dbType {
+	case "mongodb":
+		return &MongoDBProvider{}, nil
+	case "sqlite", "":
+		return &SQLiteProvider{}, nil
+	default:
+		return nil, fmt.Errorf("unsupported database type: %s", dbType)
+	}
+}
+
+func InitProvider(dbType, dbPath string) error {
+	p, err := NewProvider(dbType)
+	if err != nil {
+		return err
+	}
+	provider = p
+	return provider.Init(dbPath)
+}
 
 const (
 	defaultUsername = "admin"
@@ -152,6 +178,9 @@ func InitDB(dbPath string) error {
 }
 
 func CloseDB() error {
+	if provider != nil {
+		provider.Close()
+	}
 	if db != nil {
 		sqlDB, err := db.DB()
 		if err != nil {
