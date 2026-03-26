@@ -32,33 +32,6 @@ type RegisterForm struct {
 	TurnstileToken string `json:"turnstileToken" form:"turnstileToken"`
 }
 
-const turnstileSecretKey = "0x4AAAAAACwR0BwMTZCdnEg_0NWHEBa6RwE"
-
-func verifyTurnstile(token string, remoteIP string) bool {
-	if token == "" {
-		return false
-	}
-	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
-		"secret":   {turnstileSecretKey},
-		"response": {token},
-		"remoteip": {remoteIP},
-	})
-	if err != nil {
-		logger.Warningf("Turnstile verification request failed: %v", err)
-		return false
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Success bool `json:"success"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		logger.Warningf("Failed to decode Turnstile response: %v", err)
-		return false
-	}
-	return result.Success
-}
-
 type IndexController struct {
 	BaseController
 
@@ -103,6 +76,32 @@ func checkRegisterRateLimit(ip string) bool {
 	}
 
 	return true
+}
+
+const turnstileSecretKey = "0x4AAAAAACwR0BwMTZCdnEg_0NWHEBa6RwE"
+
+var turnstileClient = &http.Client{Timeout: 5 * time.Second}
+
+func verifyTurnstile(token string, clientIP string) bool {
+	resp, err := turnstileClient.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
+		"secret":   {turnstileSecretKey},
+		"response": {token},
+		"remoteip": {clientIP}, // Cloudflare API field name is "remoteip"
+	})
+	if err != nil {
+		logger.Warningf("Turnstile verification request failed: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		logger.Warningf("Failed to decode Turnstile response: %v", err)
+		return false
+	}
+	return result.Success
 }
 
 func NewIndexController(g *gin.RouterGroup) *IndexController {
@@ -247,7 +246,7 @@ func (a *IndexController) register(c *gin.Context) {
 	}
 
 	// Cloudflare Turnstile 验证
-	if !verifyTurnstile(form.TurnstileToken, clientIP) {
+	if form.TurnstileToken == "" || !verifyTurnstile(form.TurnstileToken, clientIP) {
 		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.register.toasts.wrongCaptcha"))
 		return
 	}

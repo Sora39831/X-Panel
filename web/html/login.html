@@ -449,6 +449,7 @@
 <script src="https://challenges.cloudflare.com/turnstile/v0.js" async defer></script>
 
 {{ template "page/body_start" .}}
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
 <a-layout id="app" v-cloak :class="themeSwitcher.currentTheme">
   <transition name="list" appear>
     <a-layout-content class="under" :style="{ minHeight: '0' }">
@@ -514,7 +515,7 @@
             </a-row>
             <a-row type="flex" justify="center">
               <a-col span="24">
-                <a-tabs :active-key="activeTab" @change="activeTab = $event" :animated="false">
+                <a-tabs :active-key="activeTab" @change="onTabChange" :animated="false">
                   <a-tab-pane key="login" tab='{{ i18n "login" }}'>
                     <a-form @submit.prevent="login">
                       <a-space direction="vertical" size="middle">
@@ -624,17 +625,12 @@
         password: "",
         confirmPassword: ""
       },
-      turnstileToken: ""
+      turnstileToken: "",
+      turnstileRendered: false
     },
     async mounted() {
       this.lang = LanguageManager.getLanguage();
       this.twoFactorEnable = await this.getTwoFactorEnable();
-      this.$nextTick(() => {
-        turnstile.render('#turnstile-widget', {
-          sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
-          callback: (token) => { this.turnstileToken = token; }
-        });
-      });
     },
     methods: {
       async login() {
@@ -656,6 +652,40 @@
           this.loadingStates.fetched = true;
 
           return msg.obj;
+        }
+      },
+      onTabChange(key) {
+        this.activeTab = key;
+        if (key === 'register' && !this.turnstileRendered) {
+          this.$nextTick(() => {
+            this.renderTurnstile();
+          });
+        }
+      },
+      renderTurnstile() {
+        if (this.turnstileRendered) return;
+        if (this._turnstileRendering) return;
+        this._turnstileRendering = true;
+        if (typeof turnstile === 'undefined') {
+          this._turnstileRetries = (this._turnstileRetries || 0) + 1;
+          if (this._turnstileRetries > 50) {
+            this._turnstileRendering = false;
+            this.$message.error('Captcha failed to load. Please refresh the page.');
+            return;
+          }
+          setTimeout(() => { this._turnstileRendering = false; this.renderTurnstile(); }, 200);
+          return;
+        }
+        try {
+          turnstile.render('#turnstile-widget', {
+            sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
+            callback: (token) => { this.turnstileToken = token; }
+          });
+          this.turnstileRendered = true;
+          this._turnstileRendering = false;
+        } catch (e) {
+          this._turnstileRendering = false;
+          this.$message.error('Captcha failed to load. Please refresh the page.');
         }
       },
       async register() {
@@ -681,6 +711,8 @@
         turnstile.reset();
         this.turnstileToken = "";
         this.loadingStates.spinning = false;
+        turnstile.reset();
+        this.turnstileToken = "";
       },
     },
   });
