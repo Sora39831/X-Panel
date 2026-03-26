@@ -2061,8 +2061,19 @@ install_mongodb() {
     1)
         # Debian/Ubuntu
         VERSION_CODENAME=$(grep -oP 'VERSION_CODENAME=\K\w+' /etc/os-release 2>/dev/null || echo "bookworm")
+        # 判断是 Debian 还是 Ubuntu
+        if grep -qi 'ID=debian' /etc/os-release && ! grep -qi 'ID_LIKE.*ubuntu' /etc/os-release; then
+            MONGO_DISTRO="debian"
+        else
+            MONGO_DISTRO="ubuntu"
+        fi
+        # MongoDB 7.0 不支持 noble (Ubuntu 24.04)，fallback 到 jammy
+        if [ "$VERSION_CODENAME" = "noble" ]; then
+            VERSION_CODENAME="jammy"
+            echo -e "${yellow}检测到 Ubuntu Noble，使用 Jammy 仓库源${plain}"
+        fi
         curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null
-        echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian ${VERSION_CODENAME}/mongodb-org/7.0 main" > /etc/apt/sources.list.d/mongodb-org-7.0.list
+        echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/${MONGO_DISTRO} ${VERSION_CODENAME}/mongodb-org/7.0 main" > /etc/apt/sources.list.d/mongodb-org-7.0.list
         apt update && apt install -y mongodb-org
         systemctl enable mongod
         systemctl start mongod
