@@ -98,6 +98,44 @@
 "wrongUsernameOrPassword" = "用户名、密码或双重验证码无效。"  
 "successLogin" = "您已成功登录您的账户。"
 
+[pages.register]
+"title" = "注册"
+"email" = "邮箱"
+"password" = "密码"
+"confirmPassword" = "确认密码"
+"captcha" = "验证码"
+
+[pages.register.toasts]
+"invalidFormData" = "数据格式错误"
+"emptyEmail" = "请输入邮箱"
+"emailLengthError" = "邮箱长度应在 4 到 64 个字符之间"
+"invalidEmail" = "邮箱格式无效"
+"emptyPassword" = "请输入密码"
+"passwordTooShort" = "密码长度不能少于 6 位"
+"passwordTooWeak" = "密码必须包含字母和数字"
+"passwordMismatch" = "两次输入的密码不一致"
+"wrongCaptcha" = "验证码错误"
+"tooManyRequests" = "请求过于频繁，请稍后再试"
+"emailAlreadyExists" = "该邮箱已被注册"
+"registerFailed" = "注册失败，请稍后再试"
+"successRegister" = "注册成功，请登录"
+
+[pages.userinfo]
+"title" = "用户信息"
+"remark" = "备注"
+"protocol" = "协议"
+"upload" = "上传"
+"download" = "下载"
+"total" = "总流量"
+"expiryTime" = "到期时间"
+"status" = "状态"
+"enabled" = "已启用"
+"disabled" = "已禁用"
+"unlimited" = "不限"
+"permanent" = "永久"
+"noData" = "暂无数据"
+"logout" = "退出登录"
+
 [pages.index]
 "title" = "系统状态"
 "cpu" = "CPU"
