@@ -36,6 +36,12 @@ import (
 	"github.com/shirou/gopsutil/v4/net"
 )
 
+var allowedPartialTables = []string{
+	"users", "inbounds", "client_traffics", "settings",
+	"inbound_client_ips", "outbound_traffics",
+	"history_of_seeders", "link_histories", "lottery_wins",
+}
+
 type ProcessState string
 
 const (
@@ -645,6 +651,39 @@ func (s *ServerService) GetDb() ([]byte, error) {
 	}
 
 	return fileContents, nil
+}
+
+func (s *ServerService) GetPartialDb(tables []string) ([]byte, error) {
+	// Validate tables against allowlist
+	validTables := make([]string, 0, len(tables))
+	for _, t := range tables {
+		for _, allowed := range allowedPartialTables {
+			if t == allowed {
+				validTables = append(validTables, t)
+				break
+			}
+		}
+	}
+	if len(validTables) == 0 {
+		return nil, common.NewError("no valid tables specified")
+	}
+
+	result := make(map[string]interface{})
+	for _, tableName := range validTables {
+		var rows []map[string]interface{}
+		if err := database.GetDB().Table(tableName).Find(&rows).Error; err != nil {
+			return nil, common.NewErrorf("error reading table %s: %v", tableName, err)
+		}
+		result[tableName] = rows
+	}
+
+	export := map[string]interface{}{
+		"version":     "1.0",
+		"exported_at": time.Now().UTC().Format(time.RFC3339),
+		"tables":      result,
+	}
+
+	return json.Marshal(export)
 }
 
 func (s *ServerService) ImportDB(file multipart.File) error {
