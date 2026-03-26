@@ -663,13 +663,16 @@
       },
       renderTurnstile() {
         if (this.turnstileRendered) return;
+        if (this._turnstileRendering) return;
+        this._turnstileRendering = true;
         if (typeof turnstile === 'undefined') {
           this._turnstileRetries = (this._turnstileRetries || 0) + 1;
           if (this._turnstileRetries > 50) {
+            this._turnstileRendering = false;
             this.$message.error('Captcha failed to load. Please refresh the page.');
             return;
           }
-          setTimeout(() => this.renderTurnstile(), 200);
+          setTimeout(() => { this._turnstileRendering = false; this.renderTurnstile(); }, 200);
           return;
         }
         try {
@@ -678,7 +681,9 @@
             callback: (token) => { this.turnstileToken = token; }
           });
           this.turnstileRendered = true;
+          this._turnstileRendering = false;
         } catch (e) {
+          this._turnstileRendering = false;
           this.$message.error('Captcha failed to load. Please refresh the page.');
         }
       },
