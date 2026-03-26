@@ -58,7 +58,31 @@ Add:
 
 **onTabChange(key):** Replace `activeTab = $event` binding with method call. On switch to register tab, call `this.$nextTick(() => this.renderTurnstile())`.
 
-**renderTurnstile():** Polling function that checks `typeof turnstile !== 'undefined'`. If undefined, retries after 200ms (max 50 attempts / 10 seconds). If max retries exceeded, shows an error message to the user. Once ready and not yet rendered, calls `turnstile.render('#turnstile-widget', { sitekey: '0x4AAAAAACwR0LBVK-2kqbSa', callback: (token) => { this.turnstileToken = token; } })` and sets `turnstileRendered = true`. The render call is wrapped in try/catch to handle invalid sitekey or missing container element.
+**renderTurnstile():** Polling function with max retry and error handling:
+
+```javascript
+renderTurnstile() {
+  if (this.turnstileRendered) return;
+  if (typeof turnstile === 'undefined') {
+    this._turnstileRetries = (this._turnstileRetries || 0) + 1;
+    if (this._turnstileRetries > 50) {
+      this.$message.error('Captcha failed to load. Please refresh the page.');
+      return;
+    }
+    setTimeout(() => this.renderTurnstile(), 200);
+    return;
+  }
+  try {
+    turnstile.render('#turnstile-widget', {
+      sitekey: '0x4AAAAAACwR0LBVK-2kqbSa',
+      callback: (token) => { this.turnstileToken = token; }
+    });
+    this.turnstileRendered = true;
+  } catch (e) {
+    this.$message.error('Captcha failed to load. Please refresh the page.');
+  }
+},
+```
 
 **register():**
 - Remove old captcha match check (`captcha !== captchaAnswer`)
@@ -91,11 +115,13 @@ type RegisterForm struct {
 ```go
 const turnstileSecretKey = "0x4AAAAAACwR0BwMTZCdnEg_0NWHEBa6RwE"
 
+var turnstileClient = &http.Client{Timeout: 5 * time.Second}
+
 func verifyTurnstile(token string, clientIP string) bool {
-    resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
+    resp, err := turnstileClient.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
         "secret":   {turnstileSecretKey},
         "response": {token},
-        "remoteip": {clientIP},
+        "remoteip": {clientIP}, // Cloudflare API field name is "remoteip"
     })
     if err != nil {
         logger.Warningf("Turnstile verification request failed: %v", err)
@@ -114,11 +140,11 @@ func verifyTurnstile(token string, clientIP string) bool {
 }
 ```
 
-Required imports to add: `net/url`, `encoding/json`. (`net/http` and `x-ui/logger` are already imported.)
+Required imports to add: `net/url`, `encoding/json`, `time`. (`net/http` and `x-ui/logger` are already imported.)
 
 ### 3. Register Handler
 
-Replace captcha validation block with:
+Replace captcha validation block with (note: `clientIP` is obtained from `getRemoteIp(c)`, already present in the register handler at line ~205):
 
 ```go
 if form.TurnstileToken == "" || !verifyTurnstile(form.TurnstileToken, clientIP) {
@@ -136,17 +162,18 @@ User clicks Register tab
   → onTabChange('register')
     → $nextTick → renderTurnstile()
       → polls: typeof turnstile !== 'undefined'?
-        → No: retry 200ms later
-        → Yes: turnstile.render('#turnstile-widget', { sitekey, callback })
-          → User completes Turnstile challenge
+        → No: retry 200ms later (max 50 retries → show "Captcha failed to load" error)
+        → Yes: turnstile.render('#turnstile-widget', ...)  [try/catch]
+          → render error → show "Captcha failed to load" error
+          → success → User completes Turnstile challenge
             → callback(token) → this.turnstileToken = token
 
 User clicks Submit
   → register()
-    → token empty? → show error
+    → token empty? → show wrongCaptcha error
     → POST { email, password, turnstileToken } → /register
-      → verifyTurnstile(token, clientIP)
-        → POST https://challenges.cloudflare.com/turnstile/v0/siteverify
+      → verifyTurnstile(token, clientIP)  [clientIP = getRemoteIp(c)]
+        → POST https://challenges.cloudflare.com/turnstile/v0/siteverify [5s timeout]
           → { success: true/false }
         → true: proceed to userService.Register()
         → false: show wrongCaptcha error
