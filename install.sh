@@ -307,9 +307,9 @@ EOF
         echo -e "${green}正在安装 MongoDB（非交互模式）...${plain}"
         case "${release}" in
         ubuntu | debian | armbian)
-            apt-get update
-            apt-get install -y gnupg curl ca-certificates
-            curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+            apt-get update || return 1
+            apt-get install -y gnupg curl ca-certificates || return 1
+            curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor || return 1
             source /etc/os-release
             MONGO_DISTRO="ubuntu"
             if grep -qi '^ID=debian' /etc/os-release && ! grep -qi 'ID_LIKE=.*ubuntu' /etc/os-release; then
@@ -328,12 +328,12 @@ EOF
                     fi
                     ;;
             esac
-            echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/${MONGO_DISTRO} ${MONGO_CODENAME}/mongodb-org/8.2 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-8.2.list
-            apt-get update
-            apt-get install -y mongodb-org
+            echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/${MONGO_DISTRO} ${MONGO_CODENAME}/mongodb-org/8.2 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-8.2.list >/dev/null || return 1
+            apt-get update || return 1
+            apt-get install -y mongodb-org || return 1
             systemctl daemon-reload
-            systemctl enable mongod
-            systemctl start mongod
+            systemctl enable mongod || return 1
+            systemctl start mongod || return 1
             ;;
         centos | rhel | almalinux | rocky | ol)
             cat >/etc/yum.repos.d/mongodb-org-8.2.repo <<'REPO'
@@ -344,10 +344,10 @@ gpgcheck=1
 enabled=1
 gpgkey=https://www.mongodb.org/static/pgp/server-8.0.asc
 REPO
-            yum install -y mongodb-org
+            yum install -y mongodb-org || return 1
             systemctl daemon-reload
-            systemctl enable mongod
-            systemctl start mongod
+            systemctl enable mongod || return 1
+            systemctl start mongod || return 1
             ;;
         fedora | amzn | virtuozzo)
             cat >/etc/yum.repos.d/mongodb-org-8.2.repo <<'REPO'
@@ -358,31 +358,39 @@ gpgcheck=1
 enabled=1
 gpgkey=https://www.mongodb.org/static/pgp/server-8.0.asc
 REPO
-            dnf install -y mongodb-org
+            dnf install -y mongodb-org || return 1
             systemctl daemon-reload
-            systemctl enable mongod
-            systemctl start mongod
+            systemctl enable mongod || return 1
+            systemctl start mongod || return 1
             ;;
         arch | manjaro | parch)
-            pacman -Sy --noconfirm mongodb
-            systemctl enable --now mongodb 2>/dev/null || systemctl enable --now mongod
+            pacman -Sy --noconfirm mongodb || return 1
+            systemctl enable --now mongodb 2>/dev/null || systemctl enable --now mongod || return 1
             ;;
         alpine)
-            apk update
-            apk add --no-cache mongodb mongodb-tools mongodb-openrc 2>/dev/null || apk add --no-cache mongodb
-            rc-update add mongodb default 2>/dev/null || rc-update add mongod default
-            rc-service mongodb start 2>/dev/null || rc-service mongod start 2>/dev/null
+            apk update || return 1
+            apk add --no-cache mongodb mongodb-tools mongodb-openrc 2>/dev/null || apk add --no-cache mongodb || return 1
+            rc-update add mongodb default 2>/dev/null || rc-update add mongod default || return 1
+            rc-service mongodb start 2>/dev/null || rc-service mongod start 2>/dev/null || return 1
             ;;
         opensuse-tumbleweed)
-            zypper refresh
-            zypper install -y mongodb
-            systemctl enable mongod 2>/dev/null || systemctl enable mongodb 2>/dev/null
-            systemctl start mongod 2>/dev/null || systemctl start mongodb 2>/dev/null
+            zypper refresh || return 1
+            zypper install -y mongodb || return 1
+            systemctl enable mongod 2>/dev/null || systemctl enable mongodb 2>/dev/null || return 1
+            systemctl start mongod 2>/dev/null || systemctl start mongodb 2>/dev/null || return 1
             ;;
         *)
             echo -e "${red}当前发行版暂未集成 MongoDB 自动安装，请手动安装后重试${plain}"
+            return 1
             ;;
         esac
+
+        if systemctl is-active --quiet mongod 2>/dev/null || systemctl is-active --quiet mongodb 2>/dev/null || rc-service mongodb status >/dev/null 2>&1 || rc-service mongod status >/dev/null 2>&1; then
+            return 0
+        fi
+
+        echo -e "${red}MongoDB 服务未能启动，请检查安装日志${plain}"
+        return 1
     }
 
     bootstrap_selected_database() {
@@ -392,7 +400,7 @@ REPO
             echo "XUI_DB_TYPE=${selected_db_type}" >/etc/x-ui/db-type.conf
         fi
         if [[ "${selected_db_type}" == "mongodb" ]]; then
-            install_mongodb_runtime_noninteractive
+            install_mongodb_runtime_noninteractive || return 1
             cat >/etc/x-ui/mongodb.conf <<'EOF'
 MONGO_HOST=localhost
 MONGO_PORT=27017
@@ -478,7 +486,7 @@ EOF
         cd /usr/local/
 
         choose_install_db_type
-        bootstrap_selected_database "${INSTALL_DB_TYPE}"
+        bootstrap_selected_database "${INSTALL_DB_TYPE}" || { echo -e "${red}数据库初始化失败，终止安装${plain}"; exit 1; }
 
         # Download resources
         if [ $# == 0 ]; then
