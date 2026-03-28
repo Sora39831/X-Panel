@@ -532,7 +532,7 @@ func migrateDb() {
 }
 
 func runDBCommand(args []string) error {
-	if len(args) == 0 {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		return fmt.Errorf("usage: x-ui db migrate --from <sqlite|mongodb> --to <sqlite|mongodb>")
 	}
 
