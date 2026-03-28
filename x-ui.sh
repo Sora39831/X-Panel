@@ -805,6 +805,58 @@ install_acme() {
         LOGI "acme.sh 已经安装。" 
         return 0 
     fi 
+    
+    # acme.sh 依赖定时任务进行自动续期，先确保 cron/crond 可用
+    LOGI "正在检查并安装 cron/crond..."
+    case "${release}" in
+    ubuntu | debian | armbian)
+        apt-get update -y && apt-get install -y cron
+        if command -v systemctl &>/dev/null; then
+            systemctl enable cron >/dev/null 2>&1
+            systemctl start cron >/dev/null 2>&1
+        fi
+        ;;
+    centos | rhel | almalinux | rocky | ol)
+        yum -y update && yum -y install cronie
+        if command -v systemctl &>/dev/null; then
+            systemctl enable crond >/dev/null 2>&1
+            systemctl start crond >/dev/null 2>&1
+        fi
+        ;;
+    fedora | amzn | virtuozzo)
+        dnf -y update && dnf -y install cronie
+        if command -v systemctl &>/dev/null; then
+            systemctl enable crond >/dev/null 2>&1
+            systemctl start crond >/dev/null 2>&1
+        fi
+        ;;
+    arch | manjaro | parch)
+        pacman -Sy --noconfirm cronie
+        if command -v systemctl &>/dev/null; then
+            systemctl enable cronie >/dev/null 2>&1
+            systemctl start cronie >/dev/null 2>&1
+        fi
+        ;;
+    alpine)
+        apk update && apk add --no-cache dcron
+        ;;
+    opensuse-tumbleweed)
+        zypper refresh && zypper -n install cron
+        if command -v systemctl &>/dev/null; then
+            systemctl enable cron >/dev/null 2>&1
+            systemctl start cron >/dev/null 2>&1
+        fi
+        ;;
+    *)
+        LOGE "不支持的操作系统，请手动安装 cron/crond 后重试。"
+        return 1
+        ;;
+    esac
+
+    if [ $? -ne 0 ]; then
+        LOGE "安装 cron/crond 失败。"
+        return 1
+    fi
  
     LOGI "正在安装 acme.sh..." 
     cd ~ || return 1 # 确保可以切换到主目录
