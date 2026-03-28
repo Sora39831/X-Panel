@@ -87,7 +87,7 @@
 
 [pages.login]
 "hello" = "你好"
-"XPanelSystem" = "售后处理系统"
+"XPanelSystem" = "图书使用管理系统"
 "title" = "欢迎使用"
 "loginAgain" = "登录时效已过，请重新登录"
 
@@ -884,3 +884,4 @@
 "panelUpdating" = "正在发送更新命令..." 
 "panelRestarting" = "正在发送重启命令..." 
 "actionCancelled" = "操作已取消" 
+
