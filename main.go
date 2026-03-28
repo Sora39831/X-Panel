@@ -6,14 +6,14 @@ import (
 	"log"
 	"os"
 	"os/signal"
-//	"os/exec"
-//	"strings"
+	//	"os/exec"
+	//	"strings"
+	"strings"
 	"syscall"
 	_ "unsafe"
 	// 中文注释: 新增了 time 和 x-ui/job 的导入，这是运行定时任务所必需的包
 	"time"
 
-	"x-ui/web/job"
 	"x-ui/config"
 	"x-ui/database"
 	"x-ui/logger"
@@ -21,6 +21,7 @@ import (
 	"x-ui/util/crypto"
 	"x-ui/web"
 	"x-ui/web/global"
+	"x-ui/web/job"
 	"x-ui/web/service"
 	"x-ui/xray"
 
@@ -64,11 +65,11 @@ func runWebServer() {
 
 	// 创建 Xray API 实例
 	xrayApi := xray.XrayAPI{}
-	
-	// 注入到 XrayService 中 
-	xrayService.SetXrayAPI(xrayApi) 
-	
-	// 注入到 InboundService 中 
+
+	// 注入到 XrayService 中
+	xrayService.SetXrayAPI(xrayApi)
+
+	// 注入到 InboundService 中
 	inboundService.SetXrayAPI(xrayApi)
 
 	// 〔中文注释〕: 2. 初始化 TG Bot 服务 (如果已启用)
@@ -77,7 +78,7 @@ func runWebServer() {
 		logger.Warningf("无法获取 Telegram Bot 设置: %v", err)
 	}
 
-	var tgBotService service.TelegramService 
+	var tgBotService service.TelegramService
 	if tgEnable {
 		// 将所有需要的服务作为参数传递进去，确保返回的 tgBotService 是一个完全初始化的、可用的实例。
 		tgBot := service.NewTgBot(&inboundService, &settingService, &serverService, &xrayService, &lastStatus)
@@ -90,18 +91,18 @@ func runWebServer() {
 	serverService.SetTelegramService(tgBotService)
 	//    同理，也为 InboundService 注入
 	inboundService.SetTelegramService(tgBotService)
-	
+
 	var server *web.Server
-	
+
 	// 〔中文注释〕: 调用我们刚刚改造过的 web.NewServer，把功能完整的 serverService 传进去。
 	server = web.NewServer(serverService)
-    // 将 tgBotService 注入到 web.Server 中，使其在 web.go/Server.Start() 中可用
-    if tgBotService != nil {
+	// 将 tgBotService 注入到 web.Server 中，使其在 web.go/Server.Start() 中可用
+	if tgBotService != nil {
 		// 〔中文注释〕: 这里的注入是为了让 Web Server 可以在启动时调用 Tgbot.Start()
-        // 同时，也确保了 Web 层的回调处理能使用到这个完整的 Bot 实例
-        server.SetTelegramService(tgBotService)
-    }
-	
+		// 同时，也确保了 Web 层的回调处理能使用到这个完整的 Bot 实例
+		server.SetTelegramService(tgBotService)
+	}
+
 	global.SetWebServer(server)
 	err = server.Start()
 	if err != nil {
@@ -145,11 +146,10 @@ func runWebServer() {
 		if tgEnable {
 			tgBotService = new(service.Tgbot)
 		}
-		
+
 		// 〔中文注释〕：步骤四：创建任务实例时，将 xrayService 和 可能为 nil 的 tgBotService 一同传入。
 		// 这样做是安全的，因为 check_client_ip_job.go 内部的 SendMessage 调用前，会先判断服务实例是否可用。
 		checkJob := job.NewCheckDeviceLimitJob(&xrayService, tgBotService)
-
 
 		// 中文注释: 使用一个无限循环，每次定时器触发，就执行一次任务的 Run() 函数
 		for {
@@ -179,9 +179,9 @@ func runWebServer() {
 
 			server = web.NewServer(serverService)
 			// 重新注入 tgBotService
-            if tgBotService != nil {
-                 server.SetTelegramService(tgBotService)
-            }
+			if tgBotService != nil {
+				server.SetTelegramService(tgBotService)
+			}
 			global.SetWebServer(server)
 			err = server.Start()
 			if err != nil {
@@ -226,28 +226,28 @@ func resetSetting() {
 
 func showSetting(show bool) {
 	// 执行 shell 命令获取 IPv4 地址
-   //   cmdIPv4 := exec.Command("sh", "-c", "curl -s4m8 ip.p3terx.com -k | sed -n 1p")
-  //    outputIPv4, err := cmdIPv4.Output()
-  //    if err != nil {
-  //     log.Fatal(err)
-  //  }
+	//   cmdIPv4 := exec.Command("sh", "-c", "curl -s4m8 ip.p3terx.com -k | sed -n 1p")
+	//    outputIPv4, err := cmdIPv4.Output()
+	//    if err != nil {
+	//     log.Fatal(err)
+	//  }
 
-    // 执行 shell 命令获取 IPv6 地址
-   //     cmdIPv6 := exec.Command("sh", "-c", "curl -s6m8 ip.p3terx.com -k | sed -n 1p")
-   //     outputIPv6, err := cmdIPv6.Output()
-   //     if err != nil {
-   //     log.Fatal(err)
-  //  }
+	// 执行 shell 命令获取 IPv6 地址
+	//     cmdIPv6 := exec.Command("sh", "-c", "curl -s6m8 ip.p3terx.com -k | sed -n 1p")
+	//     outputIPv6, err := cmdIPv6.Output()
+	//     if err != nil {
+	//     log.Fatal(err)
+	//  }
 
-    // 去除命令输出中的换行符
-//    ipv4 := strings.TrimSpace(string(outputIPv4))
-//    ipv6 := strings.TrimSpace(string(outputIPv6))
-    // 定义转义字符，定义不同颜色的转义字符
+	// 去除命令输出中的换行符
+	//    ipv4 := strings.TrimSpace(string(outputIPv4))
+	//    ipv6 := strings.TrimSpace(string(outputIPv6))
+	// 定义转义字符，定义不同颜色的转义字符
 	const (
-		Reset      = "\033[0m"
-		Red        = "\033[31m"
-		Green      = "\033[32m"
-		Yellow     = "\033[33m"
+		Reset  = "\033[0m"
+		Red    = "\033[31m"
+		Green  = "\033[32m"
+		Yellow = "\033[33m"
 	)
 	if show {
 		settingService := service.SettingService{}
@@ -281,22 +281,22 @@ func showSetting(show bool) {
 		}
 
 		fmt.Println("")
-                fmt.Println(Yellow + "----->>>以下为面板重要信息，请自行记录保存<<<-----" + Reset)
+		fmt.Println(Yellow + "----->>>以下为面板重要信息，请自行记录保存<<<-----" + Reset)
 		fmt.Println(Green + "Current panel settings as follows (当前面板设置如下):" + Reset)
 		fmt.Println("")
 		if certFile == "" || keyFile == "" {
-                                                   fmt.Println(Red + "------>> 警告：面板未安装证书进行SSL保护" + Reset)
+			fmt.Println(Red + "------>> 警告：面板未安装证书进行SSL保护" + Reset)
 		} else {
-                                                   fmt.Println(Green + "------>> 面板已安装证书采用SSL保护" + Reset)
+			fmt.Println(Green + "------>> 面板已安装证书采用SSL保护" + Reset)
 		}
-                fmt.Println("")
+		fmt.Println("")
 		hasDefaultCredential := func() bool {
 			return userModel.Username == "admin" && crypto.CheckPasswordHash(userModel.Password, "admin")
 		}()
-                if hasDefaultCredential == true {
-                                                   fmt.Println(Red + "------>> 警告：使用了默认的admin账号/密码，容易被扫描" + Reset)
+		if hasDefaultCredential == true {
+			fmt.Println(Red + "------>> 警告：使用了默认的admin账号/密码，容易被扫描" + Reset)
 		} else {
-                                                   fmt.Println(Green + "------>> 为非默认admin账号/密码，请牢记" + Reset)
+			fmt.Println(Green + "------>> 为非默认admin账号/密码，请牢记" + Reset)
 		}
 		fmt.Println("")
 		fmt.Println(Green + fmt.Sprintf("port（端口号）: %d", port) + Reset)
@@ -304,47 +304,47 @@ func showSetting(show bool) {
 		fmt.Println(Green + "PS：为安全起见，不显示账号和密码" + Reset)
 		fmt.Println(Green + "若您已经忘记账号/密码，请用脚本选项〔6〕重新设置" + Reset)
 
-	                 fmt.Println("")
+		fmt.Println("")
 		fmt.Println("--------------------------------------------------")
-  // 根据条件打印带颜色的字符串
- //     if ipv4 != "" {
- // 		fmt.Println("")
- // 		formattedIPv4 := fmt.Sprintf("%s %s%s:%d%s" + Reset,
- // 			Green+"面板 IPv4 访问地址------>>",
- // 		  	Yellow+"http://",
- // 			ipv4,
- // 			port,
- // 			Yellow+webBasePath + Reset)
- // 		fmt.Println(formattedIPv4)
- // 		fmt.Println("")
- // 	}
+		// 根据条件打印带颜色的字符串
+		//     if ipv4 != "" {
+		// 		fmt.Println("")
+		// 		formattedIPv4 := fmt.Sprintf("%s %s%s:%d%s" + Reset,
+		// 			Green+"面板 IPv4 访问地址------>>",
+		// 		  	Yellow+"http://",
+		// 			ipv4,
+		// 			port,
+		// 			Yellow+webBasePath + Reset)
+		// 		fmt.Println(formattedIPv4)
+		// 		fmt.Println("")
+		// 	}
 
- // 	if ipv6 != "" {
- // 		fmt.Println("")
- // 		formattedIPv6 := fmt.Sprintf("%s %s[%s%s%s]:%d%s%s",
- // 	        	Green+"面板 IPv6 访问地址------>>", // 绿色的提示信息
- // 		        Yellow+"http://",                 // 黄色的 http:// 部分
- // 		        Yellow,                           // 黄色的[ 左方括号
- // 		        ipv6,                             // IPv6 地址
- // 		        Yellow,                           // 黄色的] 右方括号
- // 		        port,                             // 端口号
- // 	        	Yellow+webBasePath,               // 黄色的 Web 基础路径
- // 	         	Reset)                            // 重置颜色
- // 		fmt.Println(formattedIPv6)
- // 		fmt.Println("")
- // 	}
-	fmt.Println(Green + ">>>>>>>>注：若您安装了〔证书〕，请使用您的域名用https方式登录" + Reset)
-	fmt.Println("")
-	fmt.Println("--------------------------------------------------")
-	fmt.Println("")
-//	fmt.Println("↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑")
-	fmt.Println(fmt.Sprintf("%s请确保 %s%d%s 端口已打开放行%s",Green, Red, port, Green, Reset))	
-	fmt.Println(Yellow + "请自行确保此端口没有被其他程序占用" + Reset)
-//	fmt.Println(Green + "若要登录访问面板，请复制上面的地址到浏览器" + Reset)
-	fmt.Println("")
-	fmt.Println("--------------------------------------------------")
-	fmt.Println("")
-            }
+		// 	if ipv6 != "" {
+		// 		fmt.Println("")
+		// 		formattedIPv6 := fmt.Sprintf("%s %s[%s%s%s]:%d%s%s",
+		// 	        	Green+"面板 IPv6 访问地址------>>", // 绿色的提示信息
+		// 		        Yellow+"http://",                 // 黄色的 http:// 部分
+		// 		        Yellow,                           // 黄色的[ 左方括号
+		// 		        ipv6,                             // IPv6 地址
+		// 		        Yellow,                           // 黄色的] 右方括号
+		// 		        port,                             // 端口号
+		// 	        	Yellow+webBasePath,               // 黄色的 Web 基础路径
+		// 	         	Reset)                            // 重置颜色
+		// 		fmt.Println(formattedIPv6)
+		// 		fmt.Println("")
+		// 	}
+		fmt.Println(Green + ">>>>>>>>注：若您安装了〔证书〕，请使用您的域名用https方式登录" + Reset)
+		fmt.Println("")
+		fmt.Println("--------------------------------------------------")
+		fmt.Println("")
+		//	fmt.Println("↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑")
+		fmt.Println(fmt.Sprintf("%s请确保 %s%d%s 端口已打开放行%s", Green, Red, port, Green, Reset))
+		fmt.Println(Yellow + "请自行确保此端口没有被其他程序占用" + Reset)
+		//	fmt.Println(Green + "若要登录访问面板，请复制上面的地址到浏览器" + Reset)
+		fmt.Println("")
+		fmt.Println("--------------------------------------------------")
+		fmt.Println("")
+	}
 }
 
 func updateTgbotEnableSts(status bool) {
@@ -531,6 +531,47 @@ func migrateDb() {
 	fmt.Println("Migration done! ------------>>迁移完成！")
 }
 
+func runDBCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: x-ui db migrate --from <sqlite|mongodb> --to <sqlite|mongodb>")
+	}
+
+	switch args[0] {
+	case "migrate":
+		migrateCmd := flag.NewFlagSet("db migrate", flag.ContinueOnError)
+		migrateCmd.SetOutput(os.Stderr)
+
+		var fromType string
+		var toType string
+		migrateCmd.StringVar(&fromType, "from", "", "source database provider: sqlite or mongodb")
+		migrateCmd.StringVar(&toType, "to", "", "target database provider: sqlite or mongodb")
+
+		if err := migrateCmd.Parse(args[1:]); err != nil {
+			return err
+		}
+
+		fromType = strings.ToLower(strings.TrimSpace(fromType))
+		toType = strings.ToLower(strings.TrimSpace(toType))
+
+		if fromType == "" || toType == "" {
+			return fmt.Errorf("both --from and --to are required")
+		}
+		if fromType == toType {
+			return fmt.Errorf("source and target providers must be different")
+		}
+		if fromType != "sqlite" && fromType != "mongodb" {
+			return fmt.Errorf("unsupported --from provider: %s", fromType)
+		}
+		if toType != "sqlite" && toType != "mongodb" {
+			return fmt.Errorf("unsupported --to provider: %s", toType)
+		}
+
+		return database.MigrateBetweenProviders(fromType, toType, config.GetDBPath())
+	default:
+		return fmt.Errorf("unsupported db subcommand: %s", args[0])
+	}
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		runWebServer()
@@ -583,6 +624,7 @@ func main() {
 		fmt.Println("Commands:")
 		fmt.Println("    run            run web panel")
 		fmt.Println("    migrate        migrate form other/old x-ui")
+		fmt.Println("    db             migrate between sqlite and mongodb")
 		fmt.Println("    setting        set settings")
 	}
 
@@ -638,6 +680,11 @@ func main() {
 			updateCert("", "")
 		} else {
 			updateCert(webCertFile, webKeyFile)
+		}
+	case "db":
+		if err := runDBCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
 		}
 	default:
 		fmt.Println("Invalid subcommands ----->>无效命令")
