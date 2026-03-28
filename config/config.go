@@ -10,8 +10,9 @@ import (
 	"strings"
 )
 
-//go:embed version
-var version string
+// BuildVersion is injected at build time via:
+// -ldflags "-X x-ui/config.BuildVersion=<version>"
+var BuildVersion = "dev"
 
 //go:embed name
 var name string
@@ -27,7 +28,11 @@ const (
 )
 
 func GetVersion() string {
-	return strings.TrimSpace(version)
+	v := strings.TrimSpace(BuildVersion)
+	if v == "" {
+		return "dev"
+	}
+	return v
 }
 
 func GetName() string {

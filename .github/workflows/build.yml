@@ -29,7 +29,11 @@ jobs:
           GOOS: linux
           GOARCH: amd64
         run: |
-          go build -o x-ui-linux-amd64 -ldflags="-s -w" main.go
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          go build -o x-ui-linux-amd64 -ldflags="-s -w -X x-ui/config.BuildVersion=$VERSION" main.go
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
