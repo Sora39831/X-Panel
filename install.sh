@@ -275,6 +275,15 @@ install_free_version() {
         esac
     }
 
+    ensure_db_type_conf() {
+        mkdir -p /etc/x-ui
+        if [[ ! -f /etc/x-ui/db-type.conf ]]; then
+            cat <<'EOF' >/etc/x-ui/db-type.conf
+XUI_DB_TYPE=sqlite
+EOF
+        fi
+    }
+
     gen_random_string() {
         local length="$1"
         local random_string=$(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom | fold -w "$length" | head -n 1)
@@ -482,6 +491,7 @@ install_free_version() {
         cp -f x-ui.service /etc/systemd/system/
         systemctl daemon-reload
         systemctl enable x-ui
+        ensure_db_type_conf
         systemctl start x-ui
         systemctl stop warp-go >/dev/null 2>&1
         wg-quick down wgcf >/dev/null 2>&1

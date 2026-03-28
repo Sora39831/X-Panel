@@ -9,6 +9,7 @@ Restart=always
 TimeoutStopSec=20s
 
 Environment="XRAY_VMESS_AEAD_FORCED=false"
+EnvironmentFile=-/etc/x-ui/db-type.conf
 Type=simple
 WorkingDirectory=/usr/local/x-ui/
 ExecStart=/usr/local/x-ui/x-ui
