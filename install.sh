@@ -17,9 +17,9 @@ plain='\033[0m'
 get_release_tag() {
     local mode="${1:-stable}"
     if [[ "${mode}" == "pre" ]]; then
-        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases?per_page=1" | grep -m1 '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases?per_page=30"         | awk 'BEGIN{RS="},"} /"prerelease":[[:space:]]*true/ { if (match($0, /"tag_name":[[:space:]]*"([^"]+)"/, m)) { print m[1]; exit } }'
     else
-        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest"         | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     fi
 }
 
@@ -34,22 +34,18 @@ choose_install_release_tag() {
         exit 1
     fi
 
-    if [[ -n "$pre_version" && "$pre_version" != "$stable_version" ]]; then
+    if [[ -n "$pre_version" ]]; then
         echo "" >&2
-        echo -e "${yellow}检测到 pre-release 版本：${pre_version}${plain}" >&2
-        echo -e "${yellow}稳定版本：${stable_version}${plain}" >&2
+        echo -e "${yellow}检测到最新 pre-release：${pre_version}${plain}" >&2
+        echo -e "${yellow}检测到最新稳定版：${stable_version}${plain}" >&2
         echo "" >&2
-        echo -e "  ${green}1)${plain} 安装稳定版 ${yellow}${stable_version}${plain}" >&2
-        echo -e "  ${green}2)${plain} 安装 pre-release ${yellow}${pre_version}${plain}" >&2
+        echo -e "  ${green}1)${plain} 安装最新稳定版 ${yellow}${stable_version}${plain}" >&2
+        echo -e "  ${green}2)${plain} 安装最新 pre-release ${yellow}${pre_version}${plain}" >&2
         read -p "请选择要安装的版本 (1 或 2，默认 1): " version_choice < /dev/tty
 
         case "$version_choice" in
-            2)
-                echo "$pre_version"
-                ;;
-            *)
-                echo "$stable_version"
-                ;;
+            2) echo "$pre_version" ;;
+            *) echo "$stable_version" ;;
         esac
     else
         echo "$stable_version"

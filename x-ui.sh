@@ -22,9 +22,9 @@ function LOGI() {
 get_release_tag() {
     local mode="${1:-stable}"
     if [[ "${mode}" == "pre" ]]; then
-        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases?per_page=1" | grep -m1 '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases?per_page=30"         | awk 'BEGIN{RS="},"} /"prerelease":[[:space:]]*true/ { if (match($0, /"tag_name":[[:space:]]*"([^"]+)"/, m)) { print m[1]; exit } }'
     else
-        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest"         | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
     fi
 }
 
