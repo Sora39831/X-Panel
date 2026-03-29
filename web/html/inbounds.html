@@ -922,19 +922,21 @@
             },
             async getDBInbounds() {
                 this.refreshing = true;
-                const msg = await HttpUtil.get('/panel/api/inbounds/list');
-                if (!msg.success) {
+                try {
+                    const msg = await HttpUtil.get('/panel/api/inbounds/list');
+                    if (!msg.success) {
+                        return;
+                    }
+
+                    await this.getLastOnlineMap();
+                    await this.getOnlineUsers();
+
+                    this.setInbounds(msg.obj);
+                } catch (err) {
+                    console.error('getDBInbounds failed:', err);
+                } finally {
                     this.refreshing = false;
-                    return;
                 }
-
-                await this.getLastOnlineMap();
-                await this.getOnlineUsers();
-
-                this.setInbounds(msg.obj);
-                setTimeout(() => {
-                    this.refreshing = false;
-                }, 500);
             },
             async getOnlineUsers() {
                 const msg = await HttpUtil.post('panel/api/inbounds/onlines');
@@ -972,10 +974,13 @@
                 }
             },
             setInbounds(dbInbounds) {
+                const inboundList = Array.isArray(dbInbounds)
+                    ? dbInbounds
+                    : (Array.isArray(dbInbounds?.inbounds) ? dbInbounds.inbounds : []);
                 this.inbounds.splice(0);
                 this.dbInbounds.splice(0);
                 this.clientCount.splice(0);
-                for (const inbound of dbInbounds) {
+                for (const inbound of inboundList) {
                     const dbInbound = new DBInbound(inbound);
                     to_inbound = dbInbound.toInbound()
                     this.inbounds.push(to_inbound);
@@ -998,10 +1003,10 @@
             },
             getClientCounts(dbInbound, inbound) {
                 let clientCount = 0, active = [], deactive = [], depleted = [], expiring = [], online = [], comments = new Map();
-                clients = inbound.clients;
-                clientStats = dbInbound.clientStats
-                now = new Date().getTime()
-                if (clients) {
+                const clients = Array.isArray(inbound?.clients) ? inbound.clients : [];
+                const clientStats = Array.isArray(dbInbound?.clientStats) ? dbInbound.clientStats : [];
+                const now = new Date().getTime();
+                if (clients.length > 0) {
                     clientCount = clients.length;
                     if (dbInbound.enable) {
                         clients.forEach(client => {

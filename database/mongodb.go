@@ -46,10 +46,38 @@ func (p *MongoDBProvider) Init(dbPath string) error {
 	p.db = client.Database(config.GetMongoDBName())
 	p.counters = p.db.Collection("counters")
 
+	if err := p.ensureSchema(ctx); err != nil {
+		return fmt.Errorf("mongodb schema bootstrap failed: %w", err)
+	}
+
 	logger.Info("MongoDB connected successfully")
 	return nil
 }
 
+func (p *MongoDBProvider) ensureSchema(ctx context.Context) error {
+	collections := []string{
+		"counters",
+		"users",
+		"inbounds",
+		"client_traffics",
+		"settings",
+		"outbound_traffics",
+		"inbound_client_ips",
+		"history_of_seeders",
+		"lottery_wins",
+		"link_histories",
+	}
+
+	for _, name := range collections {
+		if err := p.db.CreateCollection(ctx, name); err != nil {
+			cmdErr, ok := err.(mongo.CommandError)
+			if !ok || cmdErr.Code != 48 {
+				return fmt.Errorf("create collection %s: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
 func (p *MongoDBProvider) Close() error {
 	if p.client != nil {
 		return p.client.Disconnect(context.Background())
@@ -168,7 +196,11 @@ func (p *MongoDBProvider) populateClientStats(inbounds []*model.Inbound) ([]*mod
 
 	var traffics []*xray.ClientTraffic
 	if err := cursor.All(context.TODO(), &traffics); err != nil {
-		return inbounds, err
+		logger.Warning("failed to decode client_traffics, fallback to empty stats: ", err)
+		for _, inbound := range inbounds {
+			inbound.ClientStats = []xray.ClientTraffic{}
+		}
+		return inbounds, nil
 	}
 
 	// Map traffics by inbound_id
