@@ -216,6 +216,18 @@ apt update -y&&apt install -y curl&&apt install -y socat
 ![10](./media/10.png)
 - 在到这一步必须要注意：要保留旧设置的话，需要输入【n】
 ![11](./media/11.png)
+### 安装阶段数据库选择（SQLite / MongoDB）
+- `install.sh` 在安装流程中会提示选择数据库类型，默认 `SQLite`。
+- 选择结果会写入 `/etc/x-ui/db-type.conf`，由 `x-ui.service` 启动时读取。
+- 安装阶段只激活所选数据库运行路径：选择 MongoDB 时会安装/启动 MongoDB；选择 SQLite 时不启用 MongoDB。
+
+### 切换数据库类型与迁移规则
+- 通过管理脚本选项【27】切换数据库时，会先执行：
+  `x-ui db migrate --from <sqlite|mongodb> --to <sqlite|mongodb>`
+- 仅当迁移成功后，才会更新 `/etc/x-ui/db-type.conf` 并重启 `x-ui`。
+- 若迁移失败，将保持原数据库类型不变（不会切换生效）。
+- 切换到 SQLite 后，脚本会尝试停止并禁用 `mongod`。
+- 切换到 MongoDB 后，会保留原 SQLite `.db` 文件作为备份。
 
 
 ## 安装指定版本
@@ -936,3 +948,4 @@ XUI_BIN_FOLDER="bin" XUI_DB_FOLDER="/etc/x-ui" go build main.go
 ## Star 趋势
 
 [![Stargazers over time](https://starchart.cc/Sora39831/X-Panel.svg)](https://starchart.cc/Sora39831/X-Panel)
+

@@ -2,62 +2,17 @@ package database
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"time"
 
 	"x-ui/database/model"
-	"x-ui/logger"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
 // MigrateSQLiteToMongoDB copies all data from SQLite to MongoDB.
 func MigrateSQLiteToMongoDB(sqliteDBPath string) error {
-	mongoProvider, ok := provider.(*MongoDBProvider)
-	if !ok {
-		return fmt.Errorf("current provider is not MongoDB")
-	}
-
-	if _, err := os.Stat(sqliteDBPath); os.IsNotExist(err) {
-		return fmt.Errorf("SQLite database not found at %s", sqliteDBPath)
-	}
-
-	sqliteDB, err := gorm.Open(sqlite.Open(sqliteDBPath), &gorm.Config{})
-	if err != nil {
-		return fmt.Errorf("failed to open SQLite database: %w", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	logger.Info("Starting SQLite to MongoDB migration...")
-
-	if err := migrateUsers(sqliteDB, mongoProvider, ctx); err != nil {
-		return fmt.Errorf("migrate users: %w", err)
-	}
-
-	if err := migrateSettings(sqliteDB, mongoProvider, ctx); err != nil {
-		return fmt.Errorf("migrate settings: %w", err)
-	}
-
-	if err := migrateInbounds(sqliteDB, mongoProvider, ctx); err != nil {
-		return fmt.Errorf("migrate inbounds: %w", err)
-	}
-
-	if err := migrateOutboundTraffics(sqliteDB, mongoProvider, ctx); err != nil {
-		return fmt.Errorf("migrate outbound traffics: %w", err)
-	}
-
-	if err := migrateLinkHistory(sqliteDB, mongoProvider, ctx); err != nil {
-		return fmt.Errorf("migrate link history: %w", err)
-	}
-
-	logger.Info("SQLite to MongoDB migration completed successfully")
-	return nil
+	return MigrateBetweenProviders(migrationProviderSQLite, migrationProviderMongoDB, sqliteDBPath)
 }
 
 func migrateUsers(sqliteDB *gorm.DB, p *MongoDBProvider, ctx context.Context) error {

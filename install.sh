@@ -275,6 +275,152 @@ install_free_version() {
         esac
     }
 
+    choose_install_db_type() {
+        local db_type_conf="/etc/x-ui/db-type.conf"
+        mkdir -p /etc/x-ui
+        if [[ -f "${db_type_conf}" ]]; then
+            source "${db_type_conf}"
+            XUI_DB_TYPE=${XUI_DB_TYPE:-sqlite}
+            echo -e "${green}检测到现有数据库配置，继续使用: ${yellow}${XUI_DB_TYPE}${plain}"
+        else
+            echo -e "${green}请选择数据库类型:${plain}"
+            echo -e "  ${green}1)${plain} SQLite (默认)"
+            echo -e "  ${green}2)${plain} MongoDB"
+            read -p "请输入选择 [1-2]，直接回车默认 SQLite: " db_choice
+            case "${db_choice}" in
+                2)
+                    XUI_DB_TYPE="mongodb"
+                    ;;
+                *)
+                    XUI_DB_TYPE="sqlite"
+                    ;;
+            esac
+            cat >"${db_type_conf}" <<EOF
+XUI_DB_TYPE=${XUI_DB_TYPE}
+EOF
+            echo -e "${green}数据库类型已设置为: ${yellow}${XUI_DB_TYPE}${plain}"
+        fi
+        INSTALL_DB_TYPE="${XUI_DB_TYPE}"
+    }
+
+    install_mongodb_runtime_noninteractive() {
+        echo -e "${green}正在安装 MongoDB（非交互模式）...${plain}"
+        case "${release}" in
+        ubuntu | debian | armbian)
+            apt-get update || return 1
+            apt-get install -y gnupg curl ca-certificates || return 1
+            curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor || return 1
+            source /etc/os-release
+            MONGO_DISTRO="ubuntu"
+            if grep -qi '^ID=debian' /etc/os-release && ! grep -qi 'ID_LIKE=.*ubuntu' /etc/os-release; then
+                MONGO_DISTRO="debian"
+            fi
+            VERSION_CODENAME=${VERSION_CODENAME:-$(grep -oP 'VERSION_CODENAME=\\K\w+' /etc/os-release 2>/dev/null || echo "bookworm")}
+            case "${VERSION_CODENAME}" in
+                noble|jammy|focal|bookworm|bullseye|trixie)
+                    MONGO_CODENAME="${VERSION_CODENAME}"
+                    ;;
+                *)
+                    if [[ "${MONGO_DISTRO}" == "debian" ]]; then
+                        MONGO_CODENAME="bookworm"
+                    else
+                        MONGO_CODENAME="noble"
+                    fi
+                    ;;
+            esac
+            echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/${MONGO_DISTRO} ${MONGO_CODENAME}/mongodb-org/8.2 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-8.2.list >/dev/null || return 1
+            apt-get update || return 1
+            apt-get install -y mongodb-org || return 1
+            systemctl daemon-reload
+            systemctl enable mongod || return 1
+            systemctl start mongod || return 1
+            ;;
+        centos | rhel | almalinux | rocky | ol)
+            cat >/etc/yum.repos.d/mongodb-org-8.2.repo <<'REPO'
+[mongodb-org-8.2]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/8.2/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://www.mongodb.org/static/pgp/server-8.0.asc
+REPO
+            yum install -y mongodb-org || return 1
+            systemctl daemon-reload
+            systemctl enable mongod || return 1
+            systemctl start mongod || return 1
+            ;;
+        fedora | amzn | virtuozzo)
+            cat >/etc/yum.repos.d/mongodb-org-8.2.repo <<'REPO'
+[mongodb-org-8.2]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/8.2/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://www.mongodb.org/static/pgp/server-8.0.asc
+REPO
+            dnf install -y mongodb-org || return 1
+            systemctl daemon-reload
+            systemctl enable mongod || return 1
+            systemctl start mongod || return 1
+            ;;
+        arch | manjaro | parch)
+            pacman -Sy --noconfirm mongodb || return 1
+            systemctl enable --now mongodb 2>/dev/null || systemctl enable --now mongod || return 1
+            ;;
+        alpine)
+            apk update || return 1
+            apk add --no-cache mongodb mongodb-tools mongodb-openrc 2>/dev/null || apk add --no-cache mongodb || return 1
+            rc-update add mongodb default 2>/dev/null || rc-update add mongod default || return 1
+            rc-service mongodb start 2>/dev/null || rc-service mongod start 2>/dev/null || return 1
+            ;;
+        opensuse-tumbleweed)
+            zypper refresh || return 1
+            zypper install -y mongodb || return 1
+            systemctl enable mongod 2>/dev/null || systemctl enable mongodb 2>/dev/null || return 1
+            systemctl start mongod 2>/dev/null || systemctl start mongodb 2>/dev/null || return 1
+            ;;
+        *)
+            echo -e "${red}当前发行版暂未集成 MongoDB 自动安装，请手动安装后重试${plain}"
+            return 1
+            ;;
+        esac
+
+        if systemctl is-active --quiet mongod 2>/dev/null || systemctl is-active --quiet mongodb 2>/dev/null || rc-service mongodb status >/dev/null 2>&1 || rc-service mongod status >/dev/null 2>&1; then
+            return 0
+        fi
+
+        echo -e "${red}MongoDB 服务未能启动，请检查安装日志${plain}"
+        return 1
+    }
+
+    bootstrap_selected_database() {
+        local selected_db_type="$1"
+        mkdir -p /etc/x-ui
+        if [[ ! -f /etc/x-ui/db-type.conf ]]; then
+            echo "XUI_DB_TYPE=${selected_db_type}" >/etc/x-ui/db-type.conf
+        fi
+        if [[ "${selected_db_type}" == "mongodb" ]]; then
+            install_mongodb_runtime_noninteractive || return 1
+            cat >/etc/x-ui/mongodb.conf <<'EOF'
+MONGO_HOST=localhost
+MONGO_PORT=27017
+MONGO_DB=xui
+MONGO_USER=
+MONGO_PASS=
+EOF
+        fi
+    }
+
+    ensure_db_type_conf() {
+
+        mkdir -p /etc/x-ui
+        if [[ ! -f /etc/x-ui/db-type.conf ]]; then
+            cat <<'EOF' >/etc/x-ui/db-type.conf
+XUI_DB_TYPE=sqlite
+EOF
+        fi
+    }
+
     gen_random_string() {
         local length="$1"
         local random_string=$(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom | fold -w "$length" | head -n 1)
@@ -338,6 +484,9 @@ install_free_version() {
     echo ""
     install_x-ui() {
         cd /usr/local/
+
+        choose_install_db_type
+        bootstrap_selected_database "${INSTALL_DB_TYPE}" || { echo -e "${red}数据库初始化失败，终止安装${plain}"; exit 1; }
 
         # Download resources
         if [ $# == 0 ]; then
@@ -482,6 +631,7 @@ install_free_version() {
         cp -f x-ui.service /etc/systemd/system/
         systemctl daemon-reload
         systemctl enable x-ui
+        ensure_db_type_conf
         systemctl start x-ui
         systemctl stop warp-go >/dev/null 2>&1
         wg-quick down wgcf >/dev/null 2>&1

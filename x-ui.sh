@@ -2184,23 +2184,42 @@ REPO
 }
 
 config_db_switch() {
+    get_current_db_type() {
+        local db_type_conf="/etc/x-ui/db-type.conf"
+        local current_db_type="sqlite"
+        if [[ -f "$db_type_conf" ]]; then
+            # shellcheck disable=SC1090
+            source "$db_type_conf"
+            if [[ "$XUI_DB_TYPE" == "mongodb" || "$XUI_DB_TYPE" == "sqlite" ]]; then
+                current_db_type="$XUI_DB_TYPE"
+            fi
+        fi
+        echo "$current_db_type"
+    }
+
+    set_db_type() {
+        local db_type_conf="/etc/x-ui/db-type.conf"
+        local target_db_type="$1"
+        mkdir -p /etc/x-ui
+        echo "XUI_DB_TYPE=${target_db_type}" > "$db_type_conf"
+    }
+
     echo -e "${green}配置数据库类型${plain}"
     echo -e "${green}\t1.${plain} SQLite (默认)"
     echo -e "${green}\t2.${plain} MongoDB"
     echo -e "${green}\t3.${plain} 退出"
     read -p "请选择数据库类型 [1-3]: " db_choice
 
-    local db_type_conf="/etc/x-ui/db-type.conf"
+    local current_db_type
+    current_db_type=$(get_current_db_type)
+    local target_db_type=""
 
     case "$db_choice" in
     1)
-        echo "XUI_DB_TYPE=sqlite" > "$db_type_conf"
-        echo -e "${green}已切换到 SQLite 数据库${plain}"
-        echo -e "${green}重启 x-ui 以生效...${plain}"
-        x-ui restart
+        target_db_type="sqlite"
         ;;
     2)
-        echo "XUI_DB_TYPE=mongodb" > "$db_type_conf"
+        target_db_type="mongodb"
         local mongo_conf="/etc/x-ui/mongodb.conf"
         read -p "请输入数据库 IP [默认: localhost]: " mongo_host
         mongo_host=${mongo_host:-localhost}
@@ -2215,9 +2234,10 @@ MONGO_DB=xui
 MONGO_USER=${mongo_user}
 MONGO_PASS=${mongo_pass}
 CONF
-        echo -e "${green}已切换到 MongoDB 数据库，配置已写入: ${mongo_conf}${plain}"
-        echo -e "${green}重启 x-ui 以生效...${plain}"
-        x-ui restart
+        echo -e "${green}MongoDB 配置已写入: ${mongo_conf}${plain}"
+        if ! systemctl is-active --quiet mongod; then
+            systemctl start mongod >/dev/null 2>&1 || true
+        fi
         ;;
     3)
         return
@@ -2227,8 +2247,33 @@ CONF
         return
         ;;
     esac
-}
 
+    if [[ "$current_db_type" == "$target_db_type" ]]; then
+        echo -e "${yellow}当前已是 ${target_db_type}，无需迁移${plain}"
+        return
+    fi
+
+    echo -e "${green}开始迁移数据库：${current_db_type} -> ${target_db_type}${plain}"
+    if ! /usr/local/x-ui/x-ui db migrate --from "$current_db_type" --to "$target_db_type"; then
+        echo -e "${red}数据库迁移失败，保持当前数据库类型: ${current_db_type}${plain}"
+        return 1
+    fi
+
+    set_db_type "$target_db_type"
+    echo -e "${green}已切换到 ${target_db_type} 数据库${plain}"
+
+    if [[ "$target_db_type" == "sqlite" ]]; then
+        if ! systemctl stop mongod >/dev/null 2>&1; then
+            echo -e "${yellow}提示：停止 mongod 失败，请手动检查${plain}"
+        fi
+        if ! systemctl disable mongod >/dev/null 2>&1; then
+            echo -e "${yellow}提示：禁用 mongod 开机启动失败，请手动检查${plain}"
+        fi
+    fi
+
+    echo -e "${green}重启 x-ui 以生效...${plain}"
+    x-ui restart
+}
 show_menu() {
     echo -e "
 ——————————————————————
