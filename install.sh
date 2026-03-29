@@ -29,19 +29,19 @@ choose_install_release_tag() {
     pre_version=$(get_release_tag pre)
 
     if [[ -z "$stable_version" && -z "$pre_version" ]]; then
-        echo ""
-        echo -e "${red}获取 X-Panel 版本失败，可能是 Github API 限制，请稍后再试${plain}"
+        echo "" >&2
+        echo -e "${red}获取 X-Panel 版本失败，可能是 Github API 限制，请稍后再试${plain}" >&2
         exit 1
     fi
 
     if [[ -n "$pre_version" && "$pre_version" != "$stable_version" ]]; then
-        echo ""
-        echo -e "${yellow}检测到 pre-release 版本：${pre_version}${plain}"
-        echo -e "${yellow}稳定版本：${stable_version}${plain}"
-        echo ""
-        echo -e "  ${green}1)${plain} 安装稳定版 ${yellow}${stable_version}${plain}"
-        echo -e "  ${green}2)${plain} 安装 pre-release ${yellow}${pre_version}${plain}"
-        read -p "请选择要安装的版本 (1 或 2，默认 1): " version_choice
+        echo "" >&2
+        echo -e "${yellow}检测到 pre-release 版本：${pre_version}${plain}" >&2
+        echo -e "${yellow}稳定版本：${stable_version}${plain}" >&2
+        echo "" >&2
+        echo -e "  ${green}1)${plain} 安装稳定版 ${yellow}${stable_version}${plain}" >&2
+        echo -e "  ${green}2)${plain} 安装 pre-release ${yellow}${pre_version}${plain}" >&2
+        read -p "请选择要安装的版本 (1 或 2，默认 1): " version_choice < /dev/tty
 
         case "$version_choice" in
             2)
@@ -171,7 +171,7 @@ install_free_version() {
         source /usr/lib/os-release
         release=$ID
     else
-        echo ""
+        echo "" >&2
         echo -e "${red}检查服务器操作系统失败，请联系作者!${plain}" >&2
         exit 1
     fi
@@ -210,19 +210,19 @@ install_free_version() {
     echo ""
     last_version=$(get_release_tag stable)
     # 获取 x-ui 版本
-    xui_version=$(/usr/local/x-ui/x-ui -v)
+    xui_version=$(/usr/local/x-ui/x-ui -v 2>/dev/null)
 
     # 检查 xui_version 是否为空
     if [[ -z "$xui_version" ]]; then
-        echo ""
+        echo "" >&2
         echo -e "${red}------>>>当前服务器没有安装任何 x-ui 系列代理面板${plain}"
-        echo ""
+        echo "" >&2
         echo -e "${green}-------->>>>片刻之后脚本将会自动引导安装〔X-Panel面板〕${plain}"
     else
         # 检查版本号中是否包含冒号
         if [[ "$xui_version" == *:* ]]; then
             echo -e "${green}---------->>>>>当前代理面板的版本为: ${red}其他 x-ui 分支版本${plain}"
-            echo ""
+            echo "" >&2
             echo -e "${green}-------->>>>片刻之后脚本将会自动引导安装〔X-Panel面板〕${plain}"
         else
             echo -e "${green}---------->>>>>当前代理面板的版本为: ${red}〔X-Panel面板〕v${xui_version}${plain}"
@@ -472,7 +472,7 @@ EOF
     # This function will be called when user installed x-ui out of security
     config_after_install() {
         echo -e "${yellow}安装/更新完成！ 为了您的面板安全，建议修改面板设置 ${plain}"
-        echo ""
+        echo "" >&2
         read -p "$(echo -e "${green}想继续修改吗？${red}选择“n”以保留旧设置${plain} [y/n]？--->>请输入：")" config_confirm
         if [[ "${config_confirm}" == "y" || "${config_confirm}" == "Y" ]]; then
             read -p "请设置您的用户名: " config_account
@@ -490,18 +490,18 @@ EOF
             echo -e "${yellow}面板端口号设置成功!${plain}"
             /usr/local/x-ui/x-ui setting -webBasePath ${config_webBasePath}
             echo -e "${yellow}面板登录访问路径设置成功!${plain}"
-            echo ""
+            echo "" >&2
         else
-            echo ""
+            echo "" >&2
             sleep 1
             echo -e "${red}--------------->>>>Cancel...--------------->>>>>>>取消修改...${plain}"
-            echo ""
+            echo "" >&2
             if [[ ! -f "/etc/x-ui/x-ui.db" ]]; then
                 local usernameTemp=$(head -c 10 /dev/urandom | base64)
                 local passwordTemp=$(head -c 10 /dev/urandom | base64)
                 local webBasePathTemp=$(gen_random_string 15)
                 /usr/local/x-ui/x-ui setting -username ${usernameTemp} -password ${passwordTemp} -webBasePath ${webBasePathTemp}
-                echo ""
+                echo "" >&2
                 echo -e "${yellow}检测到为全新安装，出于安全考虑将生成随机登录信息:${plain}"
                 echo -e "###############################################"
                 echo -e "${green}用户名: ${usernameTemp}${plain}"
@@ -511,15 +511,15 @@ EOF
                 echo -e "${green}如果您忘记了登录信息，可以在安装后通过 x-ui 命令然后输入${red}数字 10 选项${green}进行查看${plain}"
             else
                 echo -e "${green}此次操作属于版本升级，保留之前旧设置项，登录方式保持不变${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}如果您忘记了登录信息，您可以通过 x-ui 命令然后输入${red}数字 10 选项${green}进行查看${plain}"
-                echo ""
-                echo ""
+                echo "" >&2
+                echo "" >&2
             fi
         fi
         sleep 1
         echo -e ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
-        echo ""
+        echo "" >&2
         /usr/local/x-ui/x-ui migrate
     }
 
@@ -534,20 +534,20 @@ EOF
         if [ $# == 0 ]; then
             last_version=$(choose_install_release_tag)
             if [[ ! -n "$last_version" ]]; then
-                echo -e "${red}获取 X-Panel 版本失败，可能是 Github API 限制，请稍后再试${plain}"
+                echo -e "${red}获取 X-Panel 版本失败，可能是 Github API 限制，请稍后再试${plain}" >&2
                 exit 1
             fi
-            echo ""
+            echo "" >&2
             echo -e "-----------------------------------------------------"
             echo -e "${green}--------->>获取 X-Panel 最新版本：${yellow}${last_version}${plain}${green}，开始安装...${plain}"
             echo -e "-----------------------------------------------------"
-            echo ""
+            echo "" >&2
             sleep 2
             echo -e "${green}---------------->>>>>>>>>安装进度50%${plain}"
             sleep 3
-            echo ""
+            echo "" >&2
             echo -e "${green}---------------->>>>>>>>>>>>>>>>>>>>>安装进度100%${plain}"
-            echo ""
+            echo "" >&2
             sleep 2
             wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(arch).tar.gz https://github.com/Sora39831/X-Panel/releases/download/${last_version}/x-ui-linux-$(arch).tar.gz
             if [[ $? -ne 0 ]]; then
@@ -557,17 +557,17 @@ EOF
         else
             last_version=$1
             url="https://github.com/Sora39831/X-Panel/releases/download/${last_version}/x-ui-linux-$(arch).tar.gz"
-            echo ""
+            echo "" >&2
             echo -e "--------------------------------------------"
             echo -e "${green}---------------->>>>开始安装 X-Panel 免费基础版$1${plain}"
             echo -e "--------------------------------------------"
-            echo ""
+            echo "" >&2
             sleep 2
             echo -e "${green}---------------->>>>>>>>>安装进度50%${plain}"
             sleep 3
-            echo ""
+            echo "" >&2
             echo -e "${green}---------------->>>>>>>>>>>>>>>>>>>>>安装进度100%${plain}"
-            echo ""
+            echo "" >&2
             sleep 2
             wget -N --no-check-certificate -O /usr/local/x-ui-linux-$(arch).tar.gz ${url}
             if [[ $? -ne 0 ]]; then
@@ -585,7 +585,7 @@ EOF
         
         sleep 3
         echo -e "${green}------->>>>>>>>>>>检查并保存安装目录${plain}"
-        echo ""
+        echo "" >&2
         tar zxvf x-ui-linux-$(arch).tar.gz
         rm x-ui-linux-$(arch).tar.gz -f
         
@@ -606,7 +606,7 @@ EOF
         sleep 2
         echo -e "${green}------->>>>>>>>>>>保存成功${plain}"
         sleep 2
-        echo ""
+        echo "" >&2
         config_after_install
 
     ssh_forwarding() {
@@ -620,50 +620,50 @@ EOF
 
         if [[ -n "$existing_cert" && -n "$existing_key" ]]; then
             echo -e "${green}面板已安装证书采用SSL保护${plain}"
-            echo ""
+            echo "" >&2
             local existing_cert=$(/usr/local/x-ui/x-ui setting -getCert true | grep -Eo 'cert: .+' | awk '{print $2}')
             domain=$(basename "$(dirname "$existing_cert")")
             echo -e "${green}登录访问面板URL: https://${domain}:${existing_port}${green}${existing_webBasePath}${plain}"
         fi
-        echo ""
+        echo "" >&2
         if [[ -z "$existing_cert" && -z "$existing_key" ]]; then
             echo -e "${red}警告：未找到证书和密钥，面板不安全！${plain}"
-            echo ""
+            echo "" >&2
             echo -e "${green}------->>>>请按照下述方法设置〔ssh转发〕<<<<-------${plain}"
-            echo ""
+            echo "" >&2
 
             # 检查 IP 并输出相应的 SSH 和浏览器访问信息
             if [[ -z $v4 ]]; then
                 echo -e "${green}1、本地电脑客户端转发命令：${plain} ${blue}ssh  -L [::]:15208:127.0.0.1:${existing_port}${blue} root@[$v6]${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}2、请通过快捷键【Win + R】调出运行窗口，在里面输入【cmd】打开本地终端服务${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}3、请在终端中成功输入服务器的〔root密码〕，注意区分大小写，用以上命令进行转发${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}4、请在浏览器地址栏复制${plain} ${blue}[::1]:15208${existing_webBasePath}${plain} ${green}进入〔X-Panel面板〕登录界面"
-                echo ""
+                echo "" >&2
                 echo -e "${red}注意：若不使用〔ssh转发〕请为X-Panel面板配置安装证书再行登录管理后台${plain}"
             elif [[ -n $v4 && -n $v6 ]]; then
                 echo -e "${green}1、本地电脑客户端转发命令：${plain} ${blue}ssh -L 15208:127.0.0.1:${existing_port}${blue} root@$v4${plain} ${yellow}或者 ${blue}ssh  -L [::]:15208:127.0.0.1:${existing_port}${blue} root@[$v6]${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}2、请通过快捷键【Win + R】调出运行窗口，在里面输入【cmd】打开本地终端服务${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}3、请在终端中成功输入服务器的〔root密码〕，注意区分大小写，用以上命令进行转发${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}4、请在浏览器地址栏复制${plain} ${blue}127.0.0.1:15208${existing_webBasePath}${plain} ${yellow}或者${plain} ${blue}[::1]:15208${existing_webBasePath}${plain} ${green}进入〔X-Panel面板〕登录界面"
-                echo ""
+                echo "" >&2
                 echo -e "${red}注意：若不使用〔ssh转发〕请为X-Panel面板配置安装证书再行登录管理后台${plain}"
             else
                 echo -e "${green}1、本地电脑客户端转发命令：${plain} ${blue}ssh -L 15208:127.0.0.1:${existing_port}${blue} root@$v4${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}2、请通过快捷键【Win + R】调出运行窗口，在里面输入【cmd】打开本地终端服务${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}3、请在终端中成功输入服务器的〔root密码〕，注意区分大小写，用以上命令进行转发${plain}"
-                echo ""
+                echo "" >&2
                 echo -e "${green}4、请在浏览器地址栏复制${plain} ${blue}127.0.0.1:15208${existing_webBasePath}${plain} ${green}进入〔X-Panel面板〕登录界面"
-                echo ""
+                echo "" >&2
                 echo -e "${red}注意：若不使用〔ssh转发〕请为X-Panel面板配置安装证书再行登录管理后台${plain}"
-                echo ""
+                echo "" >&2
             fi
         fi
     }
@@ -682,10 +682,10 @@ EOF
         systemctl start warp-go >/dev/null 2>&1
         wg-quick up wgcf >/dev/null 2A>&1
 
-        echo ""
+        echo "" >&2
         echo -e "------->>>>${green}X-Panel 免费基础版 ${last_version}${plain}<<<<安装成功，正在启动..."
         sleep 1
-        echo ""
+        echo "" >&2
         echo -e "         ---------------------"
         echo -e "         |${green}X-Panel 控制菜单用法 ${plain}|${plain}"
         echo -e "         |  ${yellow}一个更好的面板   ${plain}|${plain}"   
@@ -706,7 +706,7 @@ EOF
         echo -e "x-ui install      - 安装 X-Panel 面板"
         echo -e "x-ui uninstall    - 卸载 X-Panel 面板"
         echo -e "--------------------------------------------"
-        echo ""
+        echo "" >&2
         # if [[ -n $ipv4 ]]; then
         #    echo -e "${yellow}面板 IPv4 访问地址为：${green}http://$ipv4:${config_port}/${config_webBasePath}${plain}"
         # fi
@@ -716,7 +716,7 @@ EOF
         #    echo -e "请自行确保此端口没有被其他程序占用，${yellow}并且确保${red} ${config_port} ${yellow}端口已放行${plain}"
         sleep 3
         echo -e ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
-        echo ""
+        echo "" >&2
         echo -e "${yellow}----->>>X-Panel面板和Xray启动成功<<<-----${plain}"
     }
 
