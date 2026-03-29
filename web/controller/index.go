@@ -10,6 +10,7 @@ import (
 	"text/template"
 	"time"
 
+	"x-ui/config"
 	"x-ui/logger"
 	"x-ui/web/service"
 	"x-ui/web/session"
@@ -21,9 +22,9 @@ import (
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9_.@]+$`)
 
 type LoginForm struct {
-	Username    	string `json:"username" form:"username"`
-	Password    	string `json:"password" form:"password"`
-	TwoFactorCode	string `json:"twoFactorCode" form:"twoFactorCode"`
+	Username      string `json:"username" form:"username"`
+	Password      string `json:"password" form:"password"`
+	TwoFactorCode string `json:"twoFactorCode" form:"twoFactorCode"`
 }
 
 type RegisterForm struct {
@@ -78,13 +79,17 @@ func checkRegisterRateLimit(ip string) bool {
 	return true
 }
 
-const turnstileSecretKey = "0x4AAAAAACwR0BwMTZCdnEg_0NWHEBa6RwE"
-
 var turnstileClient = &http.Client{Timeout: 5 * time.Second}
 
 func verifyTurnstile(token string, clientIP string) bool {
+	turnstileSecret := config.GetTurnstileSecret()
+	if turnstileSecret == "" {
+		logger.Warning("Turnstile secret is not configured (XUI_TURNSTILE_SECRET)")
+		return false
+	}
+
 	resp, err := turnstileClient.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", url.Values{
-		"secret":   {turnstileSecretKey},
+		"secret":   {turnstileSecret},
 		"response": {token},
 		"remoteip": {clientIP}, // Cloudflare API field name is "remoteip"
 	})
@@ -145,11 +150,10 @@ func (a *IndexController) login(c *gin.Context) {
 	user := a.userService.CheckUser(form.Username, form.Password, form.TwoFactorCode)
 	timeStr := time.Now().Format("2006-01-02 15:04:05")
 	safeUser := template.HTMLEscapeString(form.Username)
-	safePass := template.HTMLEscapeString(form.Password)
 
 	if user == nil {
-		logger.Warningf("wrong username: \"%s\", password: \"%s\", IP: \"%s\"", safeUser, safePass, getRemoteIp(c))
-		a.tgbot.UserLoginNotify(safeUser, safePass, getRemoteIp(c), timeStr, 0)
+		logger.Warningf("wrong username: \"%s\", password: \"%s\", IP: \"%s\"", safeUser, "", getRemoteIp(c))
+		a.tgbot.UserLoginNotify(safeUser, "", getRemoteIp(c), timeStr, 0)
 		pureJsonMsg(c, http.StatusOK, false, I18nWeb(c, "pages.login.toasts.wrongUsernameOrPassword"))
 		return
 	}

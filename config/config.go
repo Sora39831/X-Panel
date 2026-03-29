@@ -138,6 +138,10 @@ func GetLogLevel() LogLevel {
 	return LogLevel(logLevel)
 }
 
+func GetTurnstileSecret() string {
+	return strings.TrimSpace(os.Getenv("XUI_TURNSTILE_SECRET"))
+}
+
 func IsDebug() bool {
 	return os.Getenv("XUI_DEBUG") == "true"
 }

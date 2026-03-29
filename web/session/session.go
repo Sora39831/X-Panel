@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/gob"
+	"net/http"
 
 	"x-ui/database/model"
 
@@ -32,6 +33,8 @@ func SetMaxAge(c *gin.Context, maxAge int) {
 		Path:     defaultPath,
 		MaxAge:   maxAge,
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isSecureRequest(c),
 	})
 }
 
@@ -61,5 +64,11 @@ func ClearSession(c *gin.Context) {
 		Path:     defaultPath,
 		MaxAge:   -1,
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   isSecureRequest(c),
 	})
+}
+
+func isSecureRequest(c *gin.Context) bool {
+	return c != nil && c.Request != nil && c.Request.TLS != nil
 }
