@@ -14,6 +14,48 @@ plain='\033[0m'
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}致命错误: ${plain} 请使用 root 权限运行此脚本\n" && exit 1
 
+get_release_tag() {
+    local mode="${1:-stable}"
+    if [[ "${mode}" == "pre" ]]; then
+        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases?per_page=1" | grep -m1 '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    else
+        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    fi
+}
+
+choose_install_release_tag() {
+    local stable_version pre_version version_choice
+    stable_version=$(get_release_tag stable)
+    pre_version=$(get_release_tag pre)
+
+    if [[ -z "$stable_version" && -z "$pre_version" ]]; then
+        echo ""
+        echo -e "${red}获取 X-Panel 版本失败，可能是 Github API 限制，请稍后再试${plain}"
+        exit 1
+    fi
+
+    if [[ -n "$pre_version" && "$pre_version" != "$stable_version" ]]; then
+        echo ""
+        echo -e "${yellow}检测到 pre-release 版本：${pre_version}${plain}"
+        echo -e "${yellow}稳定版本：${stable_version}${plain}"
+        echo ""
+        echo -e "  ${green}1)${plain} 安装稳定版 ${yellow}${stable_version}${plain}"
+        echo -e "  ${green}2)${plain} 安装 pre-release ${yellow}${pre_version}${plain}"
+        read -p "请选择要安装的版本 (1 或 2，默认 1): " version_choice
+
+        case "$version_choice" in
+            2)
+                echo "$pre_version"
+                ;;
+            *)
+                echo "$stable_version"
+                ;;
+        esac
+    else
+        echo "$stable_version"
+    fi
+}
+
 # ----------------------------------------------------------
 # 获取机器唯一硬件标识 (HWID)
 # ----------------------------------------------------------
@@ -166,7 +208,7 @@ install_free_version() {
     # echo ""
     echo -e "${yellow}---------->>>>>当前系统的架构为: $(arch)${plain}"
     echo ""
-    last_version=$(curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    last_version=$(get_release_tag stable)
     # 获取 x-ui 版本
     xui_version=$(/usr/local/x-ui/x-ui -v)
 
@@ -490,7 +532,7 @@ EOF
 
         # Download resources
         if [ $# == 0 ]; then
-            last_version=$(curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+            last_version=$(choose_install_release_tag)
             if [[ ! -n "$last_version" ]]; then
                 echo -e "${red}获取 X-Panel 版本失败，可能是 Github API 限制，请稍后再试${plain}"
                 exit 1
