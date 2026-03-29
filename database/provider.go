@@ -1,11 +1,8 @@
 package database
 
 import (
-	"io"
-	"x-ui/database/model"
+		"x-ui/database/model"
 	"x-ui/xray"
-
-	"gorm.io/gorm"
 )
 
 type DBProvider interface {
@@ -90,8 +87,7 @@ type DBProvider interface {
 	DisableInvalidClients(expiryTime int64) (int64, error)
 	MigrationRemoveOrphanedTraffics() error
 
-	// === SQLite-only (MongoDB: no-op or returns nil) ===
+	// === SQLite-only ===
 	Checkpoint() error
-	IsSQLiteDB(file io.ReaderAt) (bool, error)
-	GetGormDB() *gorm.DB
 }
+

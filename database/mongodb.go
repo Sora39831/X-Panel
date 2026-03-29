@@ -3,8 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
-	"io"
-	"strings"
+		"strings"
 	"time"
 
 	"x-ui/config"
@@ -15,7 +14,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"gorm.io/gorm"
 )
 type MongoDBProvider struct {
 	client   *mongo.Client
@@ -238,7 +236,8 @@ func (p *MongoDBProvider) CreateInbound(inbound *model.Inbound) error {
 }
 
 func (p *MongoDBProvider) SaveInbound(inbound *model.Inbound) error {
-	_, err := p.db.Collection("inbounds").ReplaceOne(context.TODO(), bson.M{"_id": inbound.Id}, inbound)
+	opts := options.Replace().SetUpsert(true)
+	_, err := p.db.Collection("inbounds").ReplaceOne(context.TODO(), bson.M{"_id": inbound.Id}, inbound, opts)
 	return err
 }
 
@@ -358,8 +357,6 @@ func (t *MongoDBTransaction) RollbackTransaction() error {
 
 // No-op methods on MongoDBProvider
 func (p *MongoDBProvider) Checkpoint() error                         { return nil }
-func (p *MongoDBProvider) IsSQLiteDB(file io.ReaderAt) (bool, error) { return false, nil }
-func (p *MongoDBProvider) GetGormDB() *gorm.DB                      { return nil }
 func (p *MongoDBProvider) CommitTransaction() error                  { return nil }
 func (p *MongoDBProvider) RollbackTransaction() error                { return nil }
 
@@ -367,8 +364,6 @@ func (p *MongoDBProvider) RollbackTransaction() error                { return ni
 func (t *MongoDBTransaction) Init(dbPath string) error                  { return nil }
 func (t *MongoDBTransaction) Close() error                              { return nil }
 func (t *MongoDBTransaction) Checkpoint() error                         { return nil }
-func (t *MongoDBTransaction) IsSQLiteDB(file io.ReaderAt) (bool, error) { return false, nil }
-func (t *MongoDBTransaction) GetGormDB() *gorm.DB                      { return nil }
 func (t *MongoDBTransaction) IsNotFound(err error) bool                 { return err == mongo.ErrNoDocuments }
 func (t *MongoDBTransaction) BeginTransaction() (DBProvider, error)     { return nil, nil }
 
@@ -462,7 +457,8 @@ func (t *MongoDBTransaction) CreateInbound(inbound *model.Inbound) error {
 }
 
 func (t *MongoDBTransaction) SaveInbound(inbound *model.Inbound) error {
-	_, err := t.db.Collection("inbounds").ReplaceOne(t.sessionCtx(), bson.M{"_id": inbound.Id}, inbound)
+	opts := options.Replace().SetUpsert(true)
+	_, err := t.db.Collection("inbounds").ReplaceOne(t.sessionCtx(), bson.M{"_id": inbound.Id}, inbound, opts)
 	return err
 }
 
@@ -1226,5 +1222,9 @@ func (t *MongoDBTransaction) MigrationRemoveOrphanedTraffics() error {
 	})
 	return err
 }
+
+
+
+
 
 

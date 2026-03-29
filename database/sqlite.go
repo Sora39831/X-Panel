@@ -1,8 +1,7 @@
 package database
 
 import (
-	"io"
-	"x-ui/database/model"
+		"x-ui/database/model"
 	"x-ui/xray"
 
 	"gorm.io/gorm"
@@ -134,7 +133,6 @@ func (t *SQLiteTransaction) IsNotFound(err error) bool                 { return 
 func (t *SQLiteTransaction) CommitTransaction() error                  { return t.tx.Commit().Error }
 func (t *SQLiteTransaction) RollbackTransaction() error                { return t.tx.Rollback().Error }
 func (t *SQLiteTransaction) Checkpoint() error                         { return nil }
-func (t *SQLiteTransaction) IsSQLiteDB(file io.ReaderAt) (bool, error) { return IsSQLiteDB(file) }
 func (t *SQLiteTransaction) GetGormDB() *gorm.DB                      { return t.tx }
 
 func (t *SQLiteTransaction) BeginTransaction() (DBProvider, error) {
@@ -631,12 +629,8 @@ func (t *SQLiteTransaction) MigrationRemoveOrphanedTraffics() error {
 	return t.tx.Exec("DELETE FROM client_traffics WHERE id NOT IN (SELECT DISTINCT value FROM inbounds, json_each(JSON_EXTRACT(settings, '$.clients')), json_each((SELECT '[' || group_concat(json_extract(value, '$.email')) || ']' FROM json_each(JSON_EXTRACT(settings, '$.clients')))) WHERE client_traffics.email = json_each.value)").Error
 }
 
-// Provider GetGormDB
-func (p *SQLiteProvider) GetGormDB() *gorm.DB {
-	return GetDB()
-}
 
 func (p *SQLiteProvider) CommitTransaction() error                  { return nil }
 func (p *SQLiteProvider) RollbackTransaction() error                { return nil }
 func (p *SQLiteProvider) Checkpoint() error                         { return Checkpoint() }
-func (p *SQLiteProvider) IsSQLiteDB(file io.ReaderAt) (bool, error) { return IsSQLiteDB(file) }
+
