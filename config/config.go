@@ -40,11 +40,41 @@ func GetName() string {
 }
 
 func GetDBType() string {
-	dbType := os.Getenv("XUI_DB_TYPE")
-	if dbType == "" {
-		return "sqlite"
+	dbType := strings.TrimSpace(os.Getenv("XUI_DB_TYPE"))
+	if dbType == "mongodb" || dbType == "sqlite" {
+		return dbType
 	}
-	return dbType
+
+	confPaths := []string{"/etc/x-ui/db-type.conf"}
+	if folder := GetDBFolderPath(); folder != "/etc/x-ui" {
+		confPaths = append(confPaths, filepath.Join(folder, "db-type.conf"))
+	}
+
+	for _, confPath := range confPaths {
+		data, err := os.ReadFile(confPath)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			if strings.TrimSpace(parts[0]) != "XUI_DB_TYPE" {
+				continue
+			}
+			value := strings.Trim(strings.TrimSpace(parts[1]), "\"'")
+			if value == "mongodb" || value == "sqlite" {
+				return value
+			}
+		}
+	}
+
+	return "sqlite"
 }
 
 func GetMongoURI() string {

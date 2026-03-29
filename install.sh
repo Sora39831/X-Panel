@@ -339,6 +339,7 @@ EOF
             echo -e "${green}数据库类型已设置为: ${yellow}${XUI_DB_TYPE}${plain}"
         fi
         INSTALL_DB_TYPE="${XUI_DB_TYPE}"
+        export XUI_DB_TYPE="${INSTALL_DB_TYPE}"
     }
 
     install_mongodb_runtime_noninteractive() {
@@ -434,11 +435,13 @@ REPO
     bootstrap_selected_database() {
         local selected_db_type="$1"
         mkdir -p /etc/x-ui
-        if [[ ! -f /etc/x-ui/db-type.conf ]]; then
-            echo "XUI_DB_TYPE=${selected_db_type}" >/etc/x-ui/db-type.conf
-        fi
+        echo "XUI_DB_TYPE=${selected_db_type}" >/etc/x-ui/db-type.conf
+        export XUI_DB_TYPE="${selected_db_type}"
         if [[ "${selected_db_type}" == "mongodb" ]]; then
             install_mongodb_runtime_noninteractive || return 1
+            if [[ -f /etc/x-ui/x-ui.db ]]; then
+                echo -e "${yellow}检测到历史 SQLite 数据库 /etc/x-ui/x-ui.db，已保留且不会删除。${plain}"
+            fi
             cat >/etc/x-ui/mongodb.conf <<'EOF'
 MONGO_HOST=localhost
 MONGO_PORT=27017
