@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"x-ui/config"
@@ -16,7 +17,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"gorm.io/gorm"
 )
-
 type MongoDBProvider struct {
 	client   *mongo.Client
 	db       *mongo.Database
@@ -317,7 +317,22 @@ func (t *MongoDBTransaction) sessionCtx() context.Context {
 	return mongo.NewSessionContext(context.TODO(), t.session)
 }
 
+func mongoSupportsTransactionsFromHello(setName string, msg string) bool {
+	return setName != "" || strings.EqualFold(msg, "isdbgrid")
+}
+
 func (p *MongoDBProvider) BeginTransaction() (DBProvider, error) {
+	var hello struct {
+		SetName string `bson:"setName"`
+		Msg     string `bson:"msg"`
+	}
+	if err := p.db.RunCommand(context.TODO(), bson.D{{Key: "hello", Value: 1}}).Decode(&hello); err != nil {
+		return nil, err
+	}
+	if !mongoSupportsTransactionsFromHello(hello.SetName, hello.Msg) {
+		return p, nil
+	}
+
 	session, err := p.client.StartSession()
 	if err != nil {
 		return nil, err
@@ -1211,3 +1226,5 @@ func (t *MongoDBTransaction) MigrationRemoveOrphanedTraffics() error {
 	})
 	return err
 }
+
+
