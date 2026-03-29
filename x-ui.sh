@@ -19,6 +19,15 @@ function LOGI() {
     echo -e "${green}[INF] $* ${plain}"
 }
 
+get_release_tag() {
+    local mode="${1:-stable}"
+    if [[ "${mode}" == "pre" ]]; then
+        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases?per_page=1" | grep -m1 '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    else
+        curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    fi
+}
+
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}致命错误: ${plain} 请使用 root 权限运行此脚本\n" && exit 1
 
@@ -38,10 +47,16 @@ echo -e "——————————————————————"
 echo -e "当前服务器的操作系统为:${red} $release${plain}"
 echo ""
 xui_version=$(/usr/local/x-ui/x-ui -v)
-last_version=$(curl -Ls "https://api.github.com/repos/Sora39831/X-Panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+last_version=$(get_release_tag stable)
 echo -e "${green}当前代理面板的版本为: ${red}〔X-Panel面板〕v${xui_version}${plain}"
 echo ""
-echo -e "${yellow}〔X-Panel面板〕最新版为---------->>> ${last_version}${plain}"
+pre_version=$(get_release_tag pre)
+if [[ -n "$pre_version" && "$pre_version" != "$last_version" ]]; then
+    echo -e "${yellow}〔X-Panel面板〕稳定版最新为------->>> ${last_version}${plain}"
+    echo -e "${yellow}〔X-Panel面板〕检测到 pre-release ->>> ${pre_version}${plain}"
+else
+    echo -e "${yellow}〔X-Panel面板〕最新版为---------->>> ${last_version}${plain}"
+fi
 
 os_version=$(grep -i version_id /etc/os-release | cut -d \" -f2 | cut -d . -f1)
 
@@ -154,7 +169,7 @@ install() {
 }
 
 update() {
-    confirm "$(echo -e "${green}该功能将强制安装最新版本，并且数据不会丢失。${red}你想继续吗？${plain}---->>请输入")" "y"
+    confirm "$(echo -e "${green}该功能将进入更新流程（若检测到 pre-release，可在安装时选择稳定版或 pre-release），并且数据不会丢失。${red}你想继续吗？${plain}---->>请输入")" "y"
     if [[ $? != 0 ]]; then
         LOGE "已取消"
         if [[ $# == 0 ]]; then

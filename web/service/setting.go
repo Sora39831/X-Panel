@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"x-ui/config"
-	"x-ui/database"
 	"x-ui/database/model"
 	"x-ui/logger"
 	"x-ui/util/common"
@@ -19,6 +21,8 @@ import (
 	"x-ui/util/reflect_util"
 	"x-ui/web/entity"
 	"x-ui/xray"
+
+	"gorm.io/gorm"
 )
 
 //go:embed config.json
@@ -77,6 +81,67 @@ var defaultValueMap = map[string]string{
 
 type SettingService struct{}
 
+var settingsFileMu sync.Mutex
+
+func getSettingsFilePath() string {
+	return filepath.Join(config.GetDBFolderPath(), "settings.json")
+}
+
+func readSettingsFromJSON() (map[string]string, error) {
+	settingsFileMu.Lock()
+	defer settingsFileMu.Unlock()
+
+	settingsPath := getSettingsFilePath()
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return map[string]string{}, nil
+		}
+		return nil, err
+	}
+	if len(data) == 0 {
+		return map[string]string{}, nil
+	}
+
+	settings := map[string]string{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, err
+	}
+	return settings, nil
+}
+
+func writeSettingsToJSON(settings map[string]string) error {
+	settingsFileMu.Lock()
+	defer settingsFileMu.Unlock()
+
+	settingsPath := getSettingsFilePath()
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		return err
+	}
+
+	if settings == nil {
+		settings = map[string]string{}
+	}
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	tmpPath := settingsPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Remove(settingsPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.Rename(tmpPath, settingsPath)
+}
+
 func (s *SettingService) GetDefaultJsonConfig() (any, error) {
 	var jsonData any
 	err := json.Unmarshal([]byte(xrayTemplateConfig), &jsonData)
@@ -87,26 +152,16 @@ func (s *SettingService) GetDefaultJsonConfig() (any, error) {
 }
 
 func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
-	var settings []*model.Setting
-
-	if config.GetDBType() == "mongodb" {
-		allSettings, err := database.GetProvider().GetAllSettings()
-		if err != nil {
-			return nil, err
+	settingMap, err := readSettingsFromJSON()
+	if err != nil {
+		return nil, err
+	}
+	settings := make([]*model.Setting, 0, len(settingMap))
+	for key, value := range settingMap {
+		if key == "xrayTemplateConfig" {
+			continue
 		}
-		settings = make([]*model.Setting, 0)
-		for _, s := range allSettings {
-			if s.Key != "xrayTemplateConfig" {
-				settings = append(settings, s)
-			}
-		}
-	} else {
-		db := database.GetDB()
-		settings = make([]*model.Setting, 0)
-		err := db.Model(model.Setting{}).Not("key = ?", "xrayTemplateConfig").Find(&settings).Error
-		if err != nil {
-			return nil, err
-		}
+		settings = append(settings, &model.Setting{Key: key, Value: value})
 	}
 
 	allSetting := &entity.AllSetting{}
@@ -133,7 +188,6 @@ func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 		}
 
 		if !found {
-			// Some settings are automatically generated, no need to return to the front end to modify the user
 			return nil
 		}
 
@@ -178,64 +232,33 @@ func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 }
 
 func (s *SettingService) ResetSettings() error {
-	if config.GetDBType() == "mongodb" {
-		return database.GetProvider().DeleteAllSettings()
-	}
-	db := database.GetDB()
-	err := db.Where("1 = 1").Delete(model.Setting{}).Error
-	if err != nil {
-		return err
-	}
-	return db.Model(model.User{}).
-		Where("1 = 1").Error
+	return writeSettingsToJSON(map[string]string{})
 }
 
 func (s *SettingService) getSetting(key string) (*model.Setting, error) {
-	if config.GetDBType() == "mongodb" {
-		return database.GetProvider().GetSettingByKey(key)
-	}
-	db := database.GetDB()
-	setting := &model.Setting{}
-	err := db.Model(model.Setting{}).Where("key = ?", key).First(setting).Error
+	settings, err := readSettingsFromJSON()
 	if err != nil {
 		return nil, err
 	}
-	return setting, nil
+	value, ok := settings[key]
+	if !ok {
+		return nil, gorm.ErrRecordNotFound
+	}
+	return &model.Setting{Key: key, Value: value}, nil
 }
 
 func (s *SettingService) saveSetting(key string, value string) error {
-	setting, err := s.getSetting(key)
-	if config.GetDBType() == "mongodb" {
-		provider := database.GetProvider()
-		if provider.IsNotFound(err) {
-			return provider.CreateSetting(&model.Setting{
-				Key:   key,
-				Value: value,
-			})
-		} else if err != nil {
-			return err
-		}
-		setting.Key = key
-		setting.Value = value
-		return provider.SaveSetting(setting)
-	}
-	db := database.GetDB()
-	if database.IsNotFound(err) {
-		return db.Create(&model.Setting{
-			Key:   key,
-			Value: value,
-		}).Error
-	} else if err != nil {
+	settings, err := readSettingsFromJSON()
+	if err != nil {
 		return err
 	}
-	setting.Key = key
-	setting.Value = value
-	return db.Save(setting).Error
+	settings[key] = value
+	return writeSettingsToJSON(settings)
 }
 
 func (s *SettingService) getString(key string) (string, error) {
 	setting, err := s.getSetting(key)
-	if database.IsNotFound(err) {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		value, ok := defaultValueMap[key]
 		if !ok {
 			return "", common.NewErrorf("key <%v> not in defaultValueMap", key)

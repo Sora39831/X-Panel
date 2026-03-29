@@ -3671,14 +3671,19 @@ func (t *Tgbot) randomString(length int, charset string) string {
 
 
 func (t *Tgbot) handleCallbackQuery(ctx *th.Context, cq telego.CallbackQuery) error {
-    // 1) 确保 Message 可访问 —— 注意必须调用 cq.Message.Message() 而不是直接访问 .Message
-    if cq.Message == nil || cq.Message.Message == nil {
+    // 1) 确保 Message 可访问
+    if cq.Message == nil {
         _ = ctx.Bot().AnswerCallbackQuery(ctx, tu.CallbackQuery(cq.ID).WithText("消息对象不存在"))
         return nil
     }
 
-    // 关键修正：这里要调用方法 Message()
-    msg := cq.Message.Message()   // <- 调用方法，返回 *telego.Message
+    // 2) 调用 Message() 方法并判空
+    msg := cq.Message.Message()
+    if msg == nil {
+        _ = ctx.Bot().AnswerCallbackQuery(ctx, tu.CallbackQuery(cq.ID).WithText("消息对象不存在"))
+        return nil
+    }
+
     // 现在 msg 是 *telego.Message，可以访问 Chat / MessageID
     chatIDInt64 := msg.Chat.ID
     messageID := msg.MessageID
@@ -4312,3 +4317,4 @@ func (t *Tgbot) SendStickerToTgbot(chatId int64, fileId string) (*telego.Message
 	// 成功返回 *telego.Message 对象
 	return msg, nil
 }
+
