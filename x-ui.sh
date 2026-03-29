@@ -270,13 +270,16 @@ reset_user() {
     [[ -z $config_account ]] && config_account=$(date +%s%N | md5sum | cut -c 1-8)
     read -rp "请设置密码 [默认为随机密码]: " config_password
     [[ -z $config_password ]] && config_password=$(date +%s%N | md5sum | cut -c 1-8)
-    /usr/local/x-ui/x-ui setting -username ${config_account} -password ${config_password} >/dev/null 2>&1
-    /usr/local/x-ui/x-ui setting -remove_secret >/dev/null 2>&1
-    echo -e "面板登录用户名已重置为：${green} ${config_account} ${plain}"
-    echo -e "面板登录密码已重置为：${green} ${config_password} ${plain}"
-    echo -e "${yellow} 面板 Secret Token 已禁用 ${plain}"
-    echo -e "${green} 请使用新的登录用户名和密码访问 X-Panel 面板。也请记住它们！${plain}"
-    confirm_restart
+    if /usr/local/x-ui/x-ui setting -username "${config_account}" -password "${config_password}" >/dev/null 2>&1; then
+        /usr/local/x-ui/x-ui setting -remove_secret >/dev/null 2>&1
+        echo -e "面板登录用户名已重置为：${green} ${config_account} ${plain}"
+        echo -e "面板登录密码已重置为：${green} ${config_password} ${plain}"
+        echo -e "${yellow} 面板 Secret Token 已禁用 ${plain}"
+        echo -e "${green} 请使用新的登录用户名和密码访问 X-Panel 面板。也请记住它们！${plain}"
+        confirm_restart
+    else
+        echo -e "${red}重置失败：用户名/密码未成功写入，请检查 x-ui 服务状态后重试。${plain}"
+    fi
 }
 
 gen_random_string() {

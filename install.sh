@@ -480,8 +480,12 @@ EOF
             read -p "请设置面板登录访问路径: " config_webBasePath
             echo -e "${yellow}您的面板访问路径为: ${config_webBasePath}${plain}"
             echo -e "${yellow}正在初始化，请稍候...${plain}"
-            /usr/local/x-ui/x-ui setting -username ${config_account} -password ${config_password}
-            echo -e "${yellow}用户名和密码设置成功!${plain}"
+            if /usr/local/x-ui/x-ui setting -username "${config_account}" -password "${config_password}"; then
+                echo -e "${yellow}用户名和密码设置成功!${plain}"
+            else
+                echo -e "${red}用户名和密码设置失败，请检查输入后重试。${plain}"
+                return 1
+            fi
             /usr/local/x-ui/x-ui setting -port ${config_port}
             echo -e "${yellow}面板端口号设置成功!${plain}"
             /usr/local/x-ui/x-ui setting -webBasePath ${config_webBasePath}
@@ -496,7 +500,12 @@ EOF
                 local usernameTemp=$(head -c 10 /dev/urandom | base64)
                 local passwordTemp=$(head -c 10 /dev/urandom | base64)
                 local webBasePathTemp=$(gen_random_string 15)
-                /usr/local/x-ui/x-ui setting -username ${usernameTemp} -password ${passwordTemp} -webBasePath ${webBasePathTemp}
+                if /usr/local/x-ui/x-ui setting -username "${usernameTemp}" -password "${passwordTemp}" -webBasePath "${webBasePathTemp}"; then
+                    :
+                else
+                    echo -e "${red}随机登录信息写入失败，请重新执行安装脚本。${plain}"
+                    return 1
+                fi
                 echo "" >&2
                 echo -e "${yellow}检测到为全新安装，出于安全考虑将生成随机登录信息:${plain}"
                 echo -e "###############################################"
