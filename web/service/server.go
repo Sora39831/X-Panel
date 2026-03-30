@@ -373,19 +373,24 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	return status
 }
 
-func (s *ServerService) GetXrayVersions() ([]string, error) {
-	const (
-		XrayURL    = "https://api.github.com/repos/XTLS/Xray-core/releases"
-		bufferSize = 8192
-	)
+func fetchXrayCoreReleases(client *http.Client, apiURL string) ([]Release, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 8 * time.Second}
+	}
 
-	resp, err := http.Get(XrayURL)
+	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "X-Panel")
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// Check HTTP status code - GitHub API returns object instead of array on error
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		var errorResponse struct {
@@ -397,20 +402,30 @@ func (s *ServerService) GetXrayVersions() ([]string, error) {
 		return nil, fmt.Errorf("GitHub API returned status %d: %s", resp.StatusCode, resp.Status)
 	}
 
-	buffer := bytes.NewBuffer(make([]byte, bufferSize))
-	buffer.Reset()
-	if _, err := buffer.ReadFrom(resp.Body); err != nil {
+	var releases []Release
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, err
 	}
+	return releases, nil
+}
 
-	var releases []Release
-	if err := json.Unmarshal(buffer.Bytes(), &releases); err != nil {
-		return nil, err
+func (s *ServerService) GetXrayVersions() ([]string, error) {
+	const xrayReleasesAPI = "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=100"
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	releases, err := fetchXrayCoreReleases(client, xrayReleasesAPI)
+	if err != nil {
+		logger.Warning("fetch xray-core releases failed:", err)
+		latest, latestErr := fetchLatestXrayCoreVersion(client, xrayCoreLatestReleaseAPI)
+		if latestErr != nil {
+			return nil, err
+		}
+		return []string{"v" + latest}, nil
 	}
 
 	var versions []string
 	for _, release := range releases {
-		tagVersion := strings.TrimPrefix(release.TagName, "v")
+		tagVersion := strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
 		tagParts := strings.Split(tagVersion, ".")
 		if len(tagParts) != 3 {
 			continue
@@ -427,6 +442,14 @@ func (s *ServerService) GetXrayVersions() ([]string, error) {
 			versions = append(versions, release.TagName)
 		}
 	}
+
+	if len(versions) == 0 {
+		latest, latestErr := fetchLatestXrayCoreVersion(client, xrayCoreLatestReleaseAPI)
+		if latestErr == nil {
+			return []string{"v" + latest}, nil
+		}
+	}
+
 	return versions, nil
 }
 
