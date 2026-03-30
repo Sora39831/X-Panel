@@ -442,13 +442,35 @@ REPO
             if [[ -f /etc/x-ui/x-ui.db ]]; then
                 echo -e "${yellow}检测到历史 SQLite 数据库 /etc/x-ui/x-ui.db，已保留且不会删除。${plain}"
             fi
-            cat >/etc/x-ui/mongodb.conf <<'EOF'
-MONGO_HOST=localhost
-MONGO_PORT=27017
-MONGO_DB=xui
-MONGO_USER=
-MONGO_PASS=
+
+            local conf_mongo_user="${mongo_user}"
+            local conf_mongo_pass="${mongo_pass}"
+            local conf_mongo_db="${mongo_db:-xui}"
+            local conf_mongo_host="${mongo_host:-localhost}"
+            local conf_mongo_port="${mongo_port:-27017}"
+
+            if [[ "${IS_FRESH_INSTALL}" == "1" ]]; then
+                configure_mongodb_runtime_auth "${conf_mongo_user}" "${conf_mongo_pass}" "${conf_mongo_db}" || {
+                    echo -e "${red}MongoDB 账户初始化失败，终止安装${plain}"
+                    return 1
+                }
+            elif [[ -f /etc/x-ui/mongodb.conf ]]; then
+                source /etc/x-ui/mongodb.conf
+                conf_mongo_host=${MONGO_HOST:-$conf_mongo_host}
+                conf_mongo_port=${MONGO_PORT:-$conf_mongo_port}
+                conf_mongo_db=${MONGO_DB:-$conf_mongo_db}
+                conf_mongo_user=${MONGO_USER:-$conf_mongo_user}
+                conf_mongo_pass=${MONGO_PASS:-$conf_mongo_pass}
+            fi
+
+            cat >/etc/x-ui/mongodb.conf <<EOF
+MONGO_HOST=${conf_mongo_host}
+MONGO_PORT=${conf_mongo_port}
+MONGO_DB=${conf_mongo_db}
+MONGO_USER=${conf_mongo_user}
+MONGO_PASS=${conf_mongo_pass}
 EOF
+            chmod 600 /etc/x-ui/mongodb.conf 2>/dev/null || true
         fi
     }
 
@@ -468,62 +490,119 @@ EOF
         echo "$random_string"
     }
 
-    # This function will be called when user installed x-ui out of security
+    is_fresh_install() {
+        if [[ -f "/etc/x-ui/x-ui.db" ]]; then
+            return 1
+        fi
+        if [[ -f "/etc/x-ui/db-type.conf" || -f "/etc/x-ui/mongodb.conf" ]]; then
+            return 1
+        fi
+        if [[ -x "/usr/local/x-ui/x-ui" ]]; then
+            return 1
+        fi
+        return 0
+    }
+
+    configure_fresh_panel_credentials() {
+        echo -e "${green}检测到全新安装，请设置面板初始化信息${plain}"
+        while true; do
+            read -p "请设置管理员用户名: " config_account
+            [[ -n "${config_account}" ]] && break
+            echo -e "${red}用户名不能为空，请重新输入。${plain}"
+        done
+
+        while true; do
+            read -p "请设置管理员密码: " config_password
+            [[ -n "${config_password}" ]] && break
+            echo -e "${red}密码不能为空，请重新输入。${plain}"
+        done
+
+        while true; do
+            read -p "请设置面板登录访问路径（输入 rd 为随机）: " config_webBasePath
+            if [[ "${config_webBasePath}" == "rd" || "${config_webBasePath}" == "RD" ]]; then
+                config_webBasePath=$(gen_random_string 15)
+                break
+            fi
+            [[ -n "${config_webBasePath}" ]] && break
+            echo -e "${red}访问路径不能为空，请重新输入。${plain}"
+        done
+
+        echo -e "${yellow}初始化账号: ${config_account}${plain}"
+        echo -e "${yellow}初始化访问路径: ${config_webBasePath}${plain}"
+    }
+
+    configure_fresh_mongodb_credentials() {
+        while true; do
+            read -p "请设置 MongoDB 用户名 [默认: xui]: " mongo_user
+            mongo_user=${mongo_user:-xui}
+            [[ -n "${mongo_user}" ]] && break
+        done
+        while true; do
+            read -p "请设置 MongoDB 密码（留空则随机生成）: " mongo_pass
+            if [[ -z "${mongo_pass}" ]]; then
+                mongo_pass=$(gen_random_string 24)
+            fi
+            [[ -n "${mongo_pass}" ]] && break
+        done
+        mongo_host="localhost"
+        mongo_port="27017"
+        mongo_db="xui"
+    }
+
+    configure_mongodb_runtime_auth() {
+        local selected_user="$1"
+        local selected_pass="$2"
+        local selected_db="$3"
+        local mongo_shell=""
+
+        if command -v mongosh >/dev/null 2>&1; then
+            mongo_shell="mongosh"
+        elif command -v mongo >/dev/null 2>&1; then
+            mongo_shell="mongo"
+        else
+            echo -e "${red}未检测到 mongosh/mongo，无法初始化 MongoDB 账户${plain}"
+            return 1
+        fi
+
+        ${mongo_shell} --quiet "mongodb://localhost:27017" --eval "db = db.getSiblingDB('${selected_db}'); if (!db.getUser('${selected_user}')) { db.createUser({user:'${selected_user}', pwd:'${selected_pass}', roles:[{role:'readWrite', db:'${selected_db}'}]}); }" >/dev/null 2>&1 || return 1
+
+        if [[ -f /etc/mongod.conf ]]; then
+            if ! grep -q '^security:' /etc/mongod.conf; then
+                cat >>/etc/mongod.conf <<'EOF'
+security:
+  authorization: enabled
+EOF
+            elif ! grep -q 'authorization:[[:space:]]*enabled' /etc/mongod.conf; then
+                sed -i '/^security:/,/^[^[:space:]]/ s/authorization:[[:space:]]*.*/authorization: enabled/' /etc/mongod.conf
+                if ! grep -q 'authorization:[[:space:]]*enabled' /etc/mongod.conf; then
+                    sed -i '/^security:/a\  authorization: enabled' /etc/mongod.conf
+                fi
+            fi
+        fi
+
+        systemctl restart mongod 2>/dev/null || systemctl restart mongodb 2>/dev/null || true
+
+        return 0
+    }
+
+    # This function will be called after package install
     config_after_install() {
-        echo -e "${yellow}安装/更新完成！ 为了您的面板安全，建议修改面板设置 ${plain}"
-        echo "" >&2
-        read -p "$(echo -e "${green}想继续修改吗？${red}选择“n”以保留旧设置${plain} [y/n]？--->>请输入：")" config_confirm
-        if [[ "${config_confirm}" == "y" || "${config_confirm}" == "Y" ]]; then
-            read -p "请设置您的用户名: " config_account
-            echo -e "${yellow}您的用户名将是: ${config_account}${plain}"
-            read -p "请设置您的密码: " config_password
-            echo -e "${yellow}您的密码将是: ${config_password}${plain}"
-            read -p "请设置面板端口: " config_port
-            echo -e "${yellow}您的面板端口号为: ${config_port}${plain}"
-            read -p "请设置面板登录访问路径: " config_webBasePath
-            echo -e "${yellow}您的面板访问路径为: ${config_webBasePath}${plain}"
-            echo -e "${yellow}正在初始化，请稍候...${plain}"
-            if /usr/local/x-ui/x-ui setting -username "${config_account}" -password "${config_password}"; then
-                echo -e "${yellow}用户名和密码设置成功!${plain}"
+        if [[ "${IS_FRESH_INSTALL}" == "1" ]]; then
+            echo -e "${yellow}正在写入全新安装的面板初始化账号与访问路径...${plain}"
+            if /usr/local/x-ui/x-ui setting -username "${config_account}" -password "${config_password}" -webBasePath "${config_webBasePath}"; then
+                echo -e "${yellow}初始化账号与访问路径设置成功!${plain}"
             else
-                echo -e "${red}用户名和密码设置失败，请检查输入后重试。${plain}"
+                echo -e "${red}初始化账号信息写入失败，请检查输入后重试。${plain}"
                 return 1
             fi
-            /usr/local/x-ui/x-ui setting -port ${config_port}
-            echo -e "${yellow}面板端口号设置成功!${plain}"
-            /usr/local/x-ui/x-ui setting -webBasePath ${config_webBasePath}
-            echo -e "${yellow}面板登录访问路径设置成功!${plain}"
+            if [[ "${INSTALL_DB_TYPE}" == "mongodb" ]]; then
+                echo -e "${yellow}MongoDB 初始化账号: ${mongo_user}${plain}"
+                echo -e "${yellow}MongoDB 初始化密码: ${mongo_pass}${plain}"
+            fi
             echo "" >&2
         else
-            echo "" >&2
-            sleep 1
-            echo -e "${red}--------------->>>>Cancel...--------------->>>>>>>取消修改...${plain}"
-            echo "" >&2
-            if [[ ! -f "/etc/x-ui/x-ui.db" ]]; then
-                local usernameTemp=$(head -c 10 /dev/urandom | base64)
-                local passwordTemp=$(head -c 10 /dev/urandom | base64)
-                local webBasePathTemp=$(gen_random_string 15)
-                if /usr/local/x-ui/x-ui setting -username "${usernameTemp}" -password "${passwordTemp}" -webBasePath "${webBasePathTemp}"; then
-                    :
-                else
-                    echo -e "${red}随机登录信息写入失败，请重新执行安装脚本。${plain}"
-                    return 1
-                fi
-                echo "" >&2
-                echo -e "${yellow}检测到为全新安装，出于安全考虑将生成随机登录信息:${plain}"
-                echo -e "###############################################"
-                echo -e "${green}用户名: ${usernameTemp}${plain}"
-                echo -e "${green}密  码: ${passwordTemp}${plain}"
-                echo -e "${green}访问路径: ${webBasePathTemp}${plain}"
-                echo -e "###############################################"
-                echo -e "${green}如果您忘记了登录信息，可以在安装后通过 x-ui 命令然后输入${red}数字 10 选项${green}进行查看${plain}"
-            else
-                echo -e "${green}此次操作属于版本升级，保留之前旧设置项，登录方式保持不变${plain}"
-                echo "" >&2
-                echo -e "${green}如果您忘记了登录信息，您可以通过 x-ui 命令然后输入${red}数字 10 选项${green}进行查看${plain}"
-                echo "" >&2
-                echo "" >&2
-            fi
+            echo -e "${green}检测到为更新安装，保留原管理员账号、密码与访问路径。${plain}"
+            echo -e "${green}如忘记登录信息，可执行 x-ui 并选择${red}数字 10${green} 查看。${plain}"
         fi
         sleep 1
         echo -e ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
@@ -535,7 +614,16 @@ EOF
     install_x-ui() {
         cd /usr/local/
 
+        IS_FRESH_INSTALL=0
+        if is_fresh_install; then
+            IS_FRESH_INSTALL=1
+            configure_fresh_panel_credentials
+        fi
+
         choose_install_db_type
+        if [[ "${IS_FRESH_INSTALL}" == "1" && "${INSTALL_DB_TYPE}" == "mongodb" ]]; then
+            configure_fresh_mongodb_credentials
+        fi
         bootstrap_selected_database "${INSTALL_DB_TYPE}" || { echo -e "${red}数据库初始化失败，终止安装${plain}"; exit 1; }
 
         # Download resources

@@ -271,6 +271,10 @@ reset_user() {
     read -rp "请设置密码 [默认为随机密码]: " config_password
     [[ -z $config_password ]] && config_password=$(date +%s%N | md5sum | cut -c 1-8)
     if /usr/local/x-ui/x-ui setting -username "${config_account}" -password "${config_password}" >/dev/null 2>&1; then
+        if ! /usr/local/x-ui/x-ui setting -show true >/dev/null 2>&1; then
+            echo -e "${red}重置失败：设置已提交但读取配置失败，请检查面板状态。${plain}"
+            return 1
+        fi
         /usr/local/x-ui/x-ui setting -remove_secret >/dev/null 2>&1
         echo -e "面板登录用户名已重置为：${green} ${config_account} ${plain}"
         echo -e "面板登录密码已重置为：${green} ${config_password} ${plain}"
@@ -2202,6 +2206,43 @@ REPO
 }
 
 config_db_switch() {
+    ensure_mongodb_auth() {
+        local mongo_host="$1"
+        local mongo_port="$2"
+        local mongo_db="$3"
+        local mongo_user="$4"
+        local mongo_pass="$5"
+        local mongo_shell=""
+
+        if command -v mongosh >/dev/null 2>&1; then
+            mongo_shell="mongosh"
+        elif command -v mongo >/dev/null 2>&1; then
+            mongo_shell="mongo"
+        else
+            echo -e "${red}未检测到 mongosh/mongo，无法创建 MongoDB 用户${plain}"
+            return 1
+        fi
+
+        ${mongo_shell} --quiet "mongodb://${mongo_host}:${mongo_port}" --eval "db = db.getSiblingDB('${mongo_db}'); if (!db.getUser('${mongo_user}')) { db.createUser({user:'${mongo_user}', pwd:'${mongo_pass}', roles:[{role:'readWrite', db:'${mongo_db}'}]}); }" >/dev/null 2>&1 || return 1
+
+        if [[ -f /etc/mongod.conf ]]; then
+            if ! grep -q '^security:' /etc/mongod.conf; then
+                cat >>/etc/mongod.conf <<'EOF'
+security:
+  authorization: enabled
+EOF
+            elif ! grep -q 'authorization:[[:space:]]*enabled' /etc/mongod.conf; then
+                sed -i '/^security:/,/^[^[:space:]]/ s/authorization:[[:space:]]*.*/authorization: enabled/' /etc/mongod.conf
+                if ! grep -q 'authorization:[[:space:]]*enabled' /etc/mongod.conf; then
+                    sed -i '/^security:/a\  authorization: enabled' /etc/mongod.conf
+                fi
+            fi
+        fi
+
+        systemctl restart mongod >/dev/null 2>&1 || systemctl restart mongodb >/dev/null 2>&1 || true
+        return 0
+    }
+
     get_current_db_type() {
         local db_type_conf="/etc/x-ui/db-type.conf"
         local current_db_type="sqlite"
@@ -2239,19 +2280,55 @@ config_db_switch() {
     2)
         target_db_type="mongodb"
         local mongo_conf="/etc/x-ui/mongodb.conf"
+        local existing_mongo_user=""
+        local existing_mongo_pass=""
+        local existing_mongo_host="localhost"
+        local existing_mongo_port="27017"
+        local existing_mongo_db="xui"
+        if [[ -f "$mongo_conf" ]]; then
+            # shellcheck disable=SC1090
+            source "$mongo_conf"
+            existing_mongo_user="${MONGO_USER}"
+            existing_mongo_pass="${MONGO_PASS}"
+            existing_mongo_host="${MONGO_HOST:-localhost}"
+            existing_mongo_port="${MONGO_PORT:-27017}"
+            existing_mongo_db="${MONGO_DB:-xui}"
+        fi
         read -p "请输入数据库 IP [默认: localhost]: " mongo_host
-        mongo_host=${mongo_host:-localhost}
+        mongo_host=${mongo_host:-$existing_mongo_host}
         read -p "请输入数据库端口 [默认: 27017]: " mongo_port
-        mongo_port=${mongo_port:-27017}
-        read -p "请输入数据库用户名 [留空则不使用]: " mongo_user
-        read -p "请输入数据库密码 [留空则不使用]: " mongo_pass
+        mongo_port=${mongo_port:-$existing_mongo_port}
+        mongo_db=${existing_mongo_db}
+        read -p "请输入数据库用户名 [留空沿用已配置]: " mongo_user
+        mongo_user=${mongo_user:-$existing_mongo_user}
+        if [[ -z "$mongo_user" ]]; then
+            while true; do
+                read -p "未检测到 MongoDB 用户名，请输入用户名: " mongo_user
+                [[ -n "$mongo_user" ]] && break
+                echo -e "${red}MongoDB 用户名不能为空${plain}"
+            done
+        fi
+        read -p "请输入数据库密码 [留空沿用已配置]: " mongo_pass
+        mongo_pass=${mongo_pass:-$existing_mongo_pass}
+        if [[ -z "$mongo_pass" ]]; then
+            while true; do
+                read -p "未检测到 MongoDB 密码，请输入密码: " mongo_pass
+                [[ -n "$mongo_pass" ]] && break
+                echo -e "${red}MongoDB 密码不能为空${plain}"
+            done
+        fi
+        ensure_mongodb_auth "$mongo_host" "$mongo_port" "$mongo_db" "$mongo_user" "$mongo_pass" || {
+            echo -e "${red}MongoDB 用户创建/鉴权配置失败，请检查后重试${plain}"
+            return 1
+        }
         cat > "$mongo_conf" << CONF
 MONGO_HOST=${mongo_host}
 MONGO_PORT=${mongo_port}
-MONGO_DB=xui
+MONGO_DB=${mongo_db}
 MONGO_USER=${mongo_user}
 MONGO_PASS=${mongo_pass}
 CONF
+        chmod 600 "$mongo_conf" >/dev/null 2>&1 || true
         echo -e "${green}MongoDB 配置已写入: ${mongo_conf}${plain}"
         if ! systemctl is-active --quiet mongod; then
             systemctl start mongod >/dev/null 2>&1 || true
